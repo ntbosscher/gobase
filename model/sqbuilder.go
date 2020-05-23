@@ -7,6 +7,10 @@ import (
 	"log"
 )
 
+func GetContext(ctx context.Context, dest interface{}, query string, args ...interface{}) error {
+	return Tx(ctx).GetContext(ctx, dest, query, args...)
+}
+
 func SelectContext(ctx context.Context, dest interface{}, qr sq.SelectBuilder) error {
 	sql, args, err := qr.ToSql()
 	if err != nil {

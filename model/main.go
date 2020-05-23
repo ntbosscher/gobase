@@ -4,7 +4,6 @@ package model
 import (
 	"context"
 	"github.com/jmoiron/sqlx"
-	"github.com/lib/pq"
 	_ "github.com/lib/pq"
 	"github.com/ntbosscher/gobase/env"
 	"io/ioutil"
@@ -51,6 +50,8 @@ func debugLogger() *log.Logger {
 	} else {
 		_debugLogger = log.New(ioutil.Discard, "", log.Flags())
 	}
+
+	return _debugLogger
 }
 
 // AttachTxHandler starts a database transaction so that
