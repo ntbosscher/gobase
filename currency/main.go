@@ -8,9 +8,22 @@ import (
 
 type Cents int
 
+func (u Cents) String() string {
+	return fmt.Sprintf("%d.%02d", u/100, u%100)
+}
+
 func (u Cents) MarshalJSON() ([]byte, error) {
-	str := fmt.Sprintf("%d.%02d", u/100, u%100)
-	return []byte(str), nil
+	return []byte(u.String()), nil
+}
+
+func (u *Cents) UnmarshalJSON(data []byte) error {
+	c, err := Parse(string(data))
+	if err != nil {
+		return err
+	}
+
+	*u = c
+	return nil
 }
 
 func Parse(src string) (Cents, error) {
