@@ -26,6 +26,11 @@ func Require(key string) string {
 	return value
 }
 
-func Optional(key string) string {
-	return os.Getenv(key)
+func Optional(key string, defaultValue string) string {
+	v := os.Getenv(key)
+	if v != "" {
+		return v
+	}
+
+	return defaultValue
 }
