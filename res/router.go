@@ -18,27 +18,31 @@ type Router struct {
 	next *mux.Router
 }
 
-func (r *Router) Get(path string, handler HandlerFunc2) {
-	r.Route("GET", path, handler)
+func (rt *Router) Get(path string, handler HandlerFunc2) {
+	rt.Route("GET", path, handler)
 }
 
-func (r *Router) Post(path string, handler HandlerFunc2) {
-	r.Route("POST", path, handler)
+func (rt *Router) Post(path string, handler HandlerFunc2) {
+	rt.Route("POST", path, handler)
 }
 
-func (r *Router) Delete(path string, handler HandlerFunc2) {
-	r.Route("DELETE", path, handler)
+func (rt *Router) Delete(path string, handler HandlerFunc2) {
+	rt.Route("DELETE", path, handler)
 }
 
-func (r *Router) NotFoundHandler(handler http.Handler) {
-	r.next.NotFoundHandler = handler
+func (rt *Router) NotFoundHandler(handler http.Handler) {
+	rt.next.NotFoundHandler = handler
 }
 
-func (r *Router) Route(method string, path string, handler HandlerFunc2) {
-	r.next.Methods(method).Path(path).HandlerFunc(r.wrapFunc(handler))
+func (rt *Router) Route(method string, path string, handler HandlerFunc2) {
+	rt.next.Methods(method).Path(path).HandlerFunc(rt.wrapFunc(handler))
 }
 
-func (r *Router) wrapFunc(handler HandlerFunc2) http.HandlerFunc {
+func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	rt.next.ServeHTTP(w, r)
+}
+
+func (rt *Router) wrapFunc(handler HandlerFunc2) http.HandlerFunc {
 	return func(wr http.ResponseWriter, req *http.Request) {
 		res := handler(&Request{
 			req: req,
