@@ -12,17 +12,23 @@ func (u Cents) String() string {
 	return fmt.Sprintf("%d.%02d", u/100, u%100)
 }
 
-func (u Cents) MarshalJSON() ([]byte, error) {
+type CentsWithJsonEncoding Cents
+
+func (u CentsWithJsonEncoding) String() string {
+	return fmt.Sprintf("%d.%02d", u/100, u%100)
+}
+
+func (u CentsWithJsonEncoding) MarshalJSON() ([]byte, error) {
 	return []byte(u.String()), nil
 }
 
-func (u *Cents) UnmarshalJSON(data []byte) error {
+func (u *CentsWithJsonEncoding) UnmarshalJSON(data []byte) error {
 	c, err := Parse(string(data))
 	if err != nil {
 		return err
 	}
 
-	*u = c
+	*u = CentsWithJsonEncoding(c)
 	return nil
 }
 
