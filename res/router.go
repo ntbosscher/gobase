@@ -78,6 +78,15 @@ func (r *Request) GetQueryInt(key string) int {
 	return v
 }
 
+func (r *Request) GetCookieValue(name string) string {
+	c, err := r.req.Cookie(name)
+	if err != nil {
+		return ""
+	}
+
+	return c.Value
+}
+
 func (r *Request) ParseJSON(result interface{}) error {
 	return json.NewDecoder(r.req.Body).Decode(result)
 }
