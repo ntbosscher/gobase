@@ -7,6 +7,11 @@ import (
 	"log"
 )
 
+func ExecContext(ctx context.Context, query string, args ...interface{}) error {
+	_, err := Tx(ctx).ExecContext(ctx, query, args...)
+	return err
+}
+
 func GetContext(ctx context.Context, dest interface{}, query string, args ...interface{}) error {
 	return Tx(ctx).GetContext(ctx, dest, query, args...)
 }
