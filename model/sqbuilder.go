@@ -16,6 +16,17 @@ func GetContext(ctx context.Context, dest interface{}, query string, args ...int
 	return Tx(ctx).GetContext(ctx, dest, query, args...)
 }
 
+func SelectContextString(ctx context.Context, dest interface{}, sql string, args ...interface{}) error {
+	err := Tx(ctx).SelectContext(ctx, dest, sql, args...)
+	if err != nil {
+		log.Println(sql)
+		log.Println(err.Error())
+		return err
+	}
+
+	return nil
+}
+
 func SelectContext(ctx context.Context, dest interface{}, qr sq.SelectBuilder) error {
 	sql, args, err := qr.ToSql()
 	if err != nil {
@@ -31,14 +42,7 @@ func SelectContext(ctx context.Context, dest interface{}, qr sq.SelectBuilder) e
 		fmt.Println("----")
 	}
 
-	err = Tx(ctx).SelectContext(ctx, dest, sql, args...)
-	if err != nil {
-		log.Println(sql)
-		log.Println(err.Error())
-		return err
-	}
-
-	return nil
+	return SelectContextString(ctx, dest, sql, args...)
 }
 
 var Builder = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
