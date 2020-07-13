@@ -8,6 +8,11 @@ import (
 
 type Cents int
 
+func (u Cents) MarshalJSON() ([]byte, error) {
+	str := fmt.Sprintf("%d.%02d", u/100, u%100)
+	return []byte(str), nil
+}
+
 func Parse(src string) (Cents, error) {
 	sanitized := src
 	sanitized = strings.Trim(sanitized, "$ ")
