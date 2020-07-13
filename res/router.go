@@ -30,6 +30,10 @@ func (r *Router) Delete(path string, handler HandlerFunc2) {
 	r.Route("DELETE", path, handler)
 }
 
+func (r *Router) NotFoundHandler(handler http.Handler) {
+	r.next.NotFoundHandler = handler
+}
+
 func (r *Router) Route(method string, path string, handler HandlerFunc2) {
 	r.next.Methods(method).Path(path).HandlerFunc(r.wrapFunc(handler))
 }
