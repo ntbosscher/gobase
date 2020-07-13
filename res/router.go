@@ -42,6 +42,10 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rt.next.ServeHTTP(w, r)
 }
 
+func (rt *Router) Use(mwf ...mux.MiddlewareFunc) {
+	rt.next.Use(mwf...)
+}
+
 func (rt *Router) wrapFunc(handler HandlerFunc2) http.HandlerFunc {
 	return func(wr http.ResponseWriter, req *http.Request) {
 		res := handler(&Request{
