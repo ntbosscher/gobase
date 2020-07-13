@@ -5,6 +5,35 @@ import (
 	"testing"
 )
 
+func TestParse(t *testing.T) {
+	c, err := Parse("2.39")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if c != 239 {
+		t.Fatal("invalid 2.39")
+	}
+
+	c, err = Parse("2.391")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if c != 239 {
+		t.Fatal("invalid 2.391")
+	}
+
+	c, err = Parse("2")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if c != 200 {
+		t.Fatal("invalid 2")
+	}
+}
+
 func TestCents_UnmarshalJSON(t *testing.T) {
 	var c CentsWithJsonEncoding
 	err := json.Unmarshal([]byte("5.29"), &c)

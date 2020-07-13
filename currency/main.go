@@ -50,6 +50,11 @@ func Parse(src string) (Cents, error) {
 	result := Cents(dollars * 100)
 
 	if len(parts) == 2 {
+		if len(parts[1]) > 2 {
+			// warning, truncating trailing cents
+			parts[1] = parts[1][0:2]
+		}
+
 		cents, err := strconv.Atoi(parts[1])
 		if err != nil {
 			return 0, fmt.Errorf("invalid currency format for string '%s'", src)
