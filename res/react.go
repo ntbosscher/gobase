@@ -80,6 +80,16 @@ func (router *reactRouter) reverseProxy(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
+	// copy headers
+	wHeader := w.Header()
+	for k, values := range res.Header {
+		wHeader.Del(k)
+
+		for _, item := range values {
+			wHeader.Add(k, item)
+		}
+	}
+
 	w.WriteHeader(res.StatusCode)
 	_, err = io.Copy(w, res.Body)
 	if err != nil {
