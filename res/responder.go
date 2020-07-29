@@ -35,6 +35,12 @@ func Func(method func(w http.ResponseWriter)) Responder {
 	}}
 }
 
+func WrapHTTP(server http.Handler) Responder {
+	return &freeformResponder{respond: func(w http.ResponseWriter, r *http.Request) {
+		server.ServeHTTP(w, r)
+	}}
+}
+
 type freeformResponder struct {
 	respond func(w http.ResponseWriter, r *http.Request)
 }
