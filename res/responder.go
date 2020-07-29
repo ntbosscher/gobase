@@ -29,6 +29,12 @@ func (resp *responder) Respond(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func Func(method func(w http.ResponseWriter)) Responder {
+	return &freeformResponder{respond: func(w http.ResponseWriter, r *http.Request) {
+		method(w)
+	}}
+}
+
 type freeformResponder struct {
 	respond func(w http.ResponseWriter, r *http.Request)
 }
