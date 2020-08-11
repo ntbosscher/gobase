@@ -3,7 +3,10 @@ package res
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/gorilla/mux"
+	"log"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 )
@@ -59,13 +62,62 @@ func (rt *Router) wrapFunc(handler HandlerFunc2) http.HandlerFunc {
 
 type HandlerFunc2 = func(rq *Request) Responder
 
+var MultipartMaxFormSize = 10 * 1000 * 1000 // 10 MB
+
 type Request struct {
 	req *http.Request
 	wr  http.ResponseWriter
+
+	parsedMultipart bool
 }
 
 func (r *Request) Context() context.Context {
 	return r.req.Context()
+}
+
+func (r *Request) ensureMultipartParsed() bool {
+	if !r.parsedMultipart {
+		r.parsedMultipart = true
+		err := r.req.ParseMultipartForm(int64(MultipartMaxFormSize))
+		if err != nil {
+			log.Println(fmt.Sprintf("failed to parse multipart form for %s: %s", r.req.URL.Path, err.Error()))
+		}
+	}
+
+	return r.req.MultipartForm != nil
+}
+
+// MultipartValue gets the value from the multipart form if it exists
+// If multiple values exist, only returns the first value
+// if value doesn't exist, will returns ""
+func (r *Request) MultipartValue(value string) string {
+
+	if ok := r.ensureMultipartParsed(); !ok {
+		return ""
+	}
+
+	values := r.req.MultipartForm.Value[value]
+	if len(values) == 0 {
+		return ""
+	}
+
+	return values[0]
+}
+
+// MultipartFile gets the file from the multipart form if it exists
+// If multiple file exist for the given key, only returns the first value
+// if file doesn't exist, will return nil
+func (r *Request) MultipartFile(key string) *multipart.FileHeader {
+	if ok := r.ensureMultipartParsed(); !ok {
+		return nil
+	}
+
+	values := r.req.MultipartForm.File[key]
+	if len(values) == 0 {
+		return nil
+	}
+
+	return values[0]
 }
 
 func (r *Request) Request() *http.Request {
