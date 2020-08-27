@@ -84,3 +84,20 @@ func startTx(ctx context.Context) (*sqlx.Tx, error) {
 
 	return tx, nil
 }
+
+// WithTx runs the callback in a sql transaction. If the callback inTx
+// returns an error, the transaction is rolled back
+func WithTx(ctx context.Context, inTx func(tx *sqlx.Tx) error) error {
+	ctx, cancel, err := BeginTx(ctx, "with-tx")
+	if err != nil {
+		return err
+	}
+
+	defer cancel()
+
+	if err := inTx(Tx(ctx)); err != nil {
+		return err
+	}
+
+	return Commit(ctx)
+}
