@@ -1,6 +1,8 @@
 package currency
 
 import (
+	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"strconv"
 	"strings"
@@ -12,6 +14,33 @@ func (u Cents) String() string {
 	return fmt.Sprintf("%d.%02d", u/100, u%100)
 }
 
+type NullCents struct {
+	Valid bool
+	Cents
+}
+
+// Scan implements the Scanner interface.
+func (n *NullCents) Scan(value interface{}) error {
+	i := sql.NullInt64{}
+	if err := i.Scan(value); err != nil {
+		return err
+	}
+
+	n.Valid = i.Valid
+	n.Cents = Cents(i.Int64)
+}
+
+// Value implements the driver Valuer interface.
+func (n NullCents) Value() (driver.Value, error) {
+	if !n.Valid {
+		return nil, nil
+	}
+
+	return n.Cents, nil
+}
+
+// CentsWithJsonEncoding formats json values in ##.## format
+// rather than #### cents format
 type CentsWithJsonEncoding Cents
 
 func (u CentsWithJsonEncoding) String() string {
