@@ -7,7 +7,8 @@ This is a group of utils I commonly use in my golang applications
 ```
 # go package
 go get github.com/ntbosscher/gobase
-
+```
+```
 # .env
 touch .env # add .env to your .gitignore
 
