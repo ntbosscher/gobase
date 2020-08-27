@@ -10,8 +10,6 @@ go get github.com/ntbosscher/gobase
 ```
 ```
 # .env
-touch .env # add .env to your .gitignore
-
 # postgres | mysql (optional, default=postgres)
 DB_TYPE=
 
@@ -24,6 +22,9 @@ CONNECTION_STRING=
 # - in react-router will use local node server instead of build folder
 # TEST=
 ```
+
+If you're using authhttp, create a `.jwtkey` file. 
+You might find [jwtgen-util](./auth/authhttp/jwtgen) to be helpful.
 
 ## Sample
 

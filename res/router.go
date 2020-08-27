@@ -37,7 +37,7 @@ func (rt *Router) NotFoundHandler(handler http.Handler) {
 }
 
 func (rt *Router) Route(method string, path string, handler HandlerFunc2) {
-	rt.next.Methods(method).Path(path).HandlerFunc(rt.wrapFunc(handler))
+	rt.next.Methods(method).Path(path).HandlerFunc(WrapHTTPFunc(handler))
 }
 
 func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -52,14 +52,17 @@ func (rt *Router) StaticFileDir(urlPrefix string, srcDir string) {
 	rt.next.PathPrefix(urlPrefix).Handler(http.FileServer(http.Dir(srcDir)))
 }
 
-func (rt *Router) wrapFunc(handler HandlerFunc2) http.HandlerFunc {
+func WrapHTTPFunc(handler HandlerFunc2) http.HandlerFunc {
 	return func(wr http.ResponseWriter, req *http.Request) {
-		res := handler(&Request{
-			req: req,
-			wr:  wr,
-		})
-
+		res := handler(NewRequest(wr, req))
 		res.Respond(wr, req)
+	}
+}
+
+func NewRequest(wr http.ResponseWriter, req *http.Request) *Request {
+	return &Request{
+		req: req,
+		wr:  wr,
 	}
 }
 
@@ -74,8 +77,21 @@ type Request struct {
 	parsedMultipart bool
 }
 
+func (r *Request) Cookie(name string) string {
+	c, err := r.req.Cookie(name)
+	if err != nil {
+		return ""
+	}
+
+	return c.Value
+}
+
 func (r *Request) Context() context.Context {
 	return r.req.Context()
+}
+
+func (r *Request) Writer() http.ResponseWriter {
+	return r.wr
 }
 
 func (r *Request) ensureMultipartParsed() bool {
