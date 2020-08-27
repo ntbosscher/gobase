@@ -3,6 +3,7 @@ package model
 
 import (
 	"context"
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/ntbosscher/gobase/env"
@@ -21,7 +22,8 @@ func init() {
 }
 
 func createConnection() *sqlx.DB {
-	db, err := sqlx.Open("postgres", env.Require("CONNECTION_STRING"))
+
+	db, err := sqlx.Open(env.Optional("DB_TYPE", "postgres"), env.Require("CONNECTION_STRING"))
 	if err != nil {
 		log.Fatal(err.Error() + ": check the environment value for CONNECTION_STRING")
 	}

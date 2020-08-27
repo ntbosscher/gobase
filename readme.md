@@ -6,6 +6,20 @@ This is a group of utils I commonly use in my golang applications
 
 ```
 go get github.com/ntbosscher/gobase
+touch .env # add .env to your .gitignore
+
+# .env variables
+# postgres | mysql (optional, default=postgres)
+DB_TYPE=
+
+# mysql/maria connection string details see: https://github.com/go-sql-driver/mysql
+# host=127.0.0.1 port=5432 user=... (required)
+CONNECTION_STRING=
+ 
+# is testing mode
+# true|false|undefined (optional, default=false)
+# - in react-router will use local node server instead of build folder
+# TEST=
 ```
 
 ## Sample

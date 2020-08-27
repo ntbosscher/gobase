@@ -14,7 +14,7 @@ func init() {
 		log.Fatal("Error loading .env file: ", err.Error())
 	}
 
-	IsTesting = os.Getenv("TEST") != ""
+	IsTesting = os.Getenv("TEST") == "true"
 }
 
 func Require(key string) string {
