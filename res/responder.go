@@ -1,14 +1,47 @@
 package res
 
 import (
-	"encoding/json"
+	jsoniter "github.com/json-iterator/go"
+	"github.com/json-iterator/go/extra"
 	"io"
 	"log"
 	"net/http"
 	"reflect"
 	"strings"
 	"time"
+	"unicode"
 )
+
+var json = jsoniter.ConfigDefault
+
+func init() {
+	extra.SetNamingStrategy(jsonRenameKeysToCamelCase)
+}
+
+func jsonRenameKeysToCamelCase(key string) string {
+
+	if len(key) == 0 {
+		return key
+	}
+
+	if key == "ID" {
+		return "id"
+	}
+
+	runes := []rune(key)
+	runes[0] = unicode.ToLower(runes[0])
+
+	length := len(runes)
+
+	if length > 2 {
+		if string(runes[length-2:]) == "ID" {
+			runes[length-2] = 'I'
+			runes[length-1] = 'd'
+		}
+	}
+
+	return string(runes)
+}
 
 type Responder interface {
 	Respond(w http.ResponseWriter, r *http.Request)
