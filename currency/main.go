@@ -28,6 +28,7 @@ func (n *NullCents) Scan(value interface{}) error {
 
 	n.Valid = i.Valid
 	n.Cents = Cents(i.Int64)
+	return nil
 }
 
 // Value implements the driver Valuer interface.
