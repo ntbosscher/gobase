@@ -48,6 +48,10 @@ func (rt *Router) Use(mwf ...mux.MiddlewareFunc) {
 	rt.next.Use(mwf...)
 }
 
+func (rt *Router) StaticFileDir(urlPrefix string, srcDir string) {
+	rt.next.PathPrefix(urlPrefix).Handler(http.FileServer(http.Dir(srcDir)))
+}
+
 func (rt *Router) wrapFunc(handler HandlerFunc2) http.HandlerFunc {
 	return func(wr http.ResponseWriter, req *http.Request) {
 		res := handler(&Request{
