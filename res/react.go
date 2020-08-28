@@ -1,7 +1,6 @@
 package res
 
 import (
-	"fmt"
 	"github.com/ntbosscher/gobase/env"
 	"io"
 	"log"
@@ -76,7 +75,6 @@ func (router *reactRouter) reverseProxy(w http.ResponseWriter, r *http.Request, 
 	defer res.Body.Close()
 
 	if res.StatusCode == 404 && u.Path != "/" {
-		fmt.Println("retrying with /")
 		u.Path = "/"
 		router.reverseProxy(w, r, u)
 		return
