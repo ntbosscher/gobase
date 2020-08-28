@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 func WrapGorilla(router *mux.Router) *Router {
@@ -18,6 +19,10 @@ func WrapGorilla(router *mux.Router) *Router {
 
 type Router struct {
 	next *mux.Router
+}
+
+func NewRouter() *Router {
+	return WrapGorilla(mux.NewRouter())
 }
 
 func (rt *Router) Get(path string, handler HandlerFunc2) {
@@ -50,6 +55,38 @@ func (rt *Router) Use(mwf ...mux.MiddlewareFunc) {
 
 func (rt *Router) StaticFileDir(urlPrefix string, srcDir string) {
 	rt.next.PathPrefix(urlPrefix).Handler(http.FileServer(http.Dir(srcDir)))
+}
+
+// ReactApp serves the react app located at srcDir. This works the similar to
+// StaticFileDir except:
+// - ReactApp serves index.html on all not-found routes (to support virtual routing)
+// - In testing mode (environment variable TEST=true) reverse proxies to create-react-app's node server on port given
+//
+func (rt *Router) ReactApp(urlPrefix string, srcDir string, testNodeServerAddr string) {
+	react := ReactApp(srcDir, testNodeServerAddr)
+
+	rt.next.NotFoundHandler = funcToHttpServer(func(writer http.ResponseWriter, request *http.Request) {
+		if strings.HasPrefix(request.URL.Path, urlPrefix) {
+			react.ServeHTTP(writer, request)
+			return
+		}
+
+		http.NotFound(writer, request)
+	})
+}
+
+func funcToHttpServer(handler http.HandlerFunc) http.Handler {
+	return &funcServer{
+		handler: handler,
+	}
+}
+
+type funcServer struct {
+	handler http.HandlerFunc
+}
+
+func (f *funcServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.handler(w, r)
 }
 
 func WrapHTTPFunc(handler HandlerFunc2) http.HandlerFunc {

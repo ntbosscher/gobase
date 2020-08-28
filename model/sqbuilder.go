@@ -12,6 +12,16 @@ func ExecContext(ctx context.Context, query string, args ...interface{}) error {
 	return err
 }
 
+func Insert(ctx context.Context, query string, args ...interface{}) (id int64, err error) {
+	result, err := Tx(ctx).ExecContext(ctx, query, args...)
+	if err != nil {
+		return
+	}
+
+	id, err = result.LastInsertId()
+	return
+}
+
 func GetContext(ctx context.Context, dest interface{}, query string, args ...interface{}) error {
 	return Tx(ctx).GetContext(ctx, dest, query, args...)
 }

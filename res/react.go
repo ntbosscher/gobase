@@ -12,16 +12,18 @@ import (
 	"strings"
 )
 
-func ReactApp(dir string) http.Handler {
+func ReactApp(dir string, testNodeServerAddr string) http.Handler {
 	return &reactRouter{
-		fileServer: http.FileServer(http.Dir(dir)),
-		staticDir:  dir,
+		fileServer:         http.FileServer(http.Dir(dir)),
+		staticDir:          dir,
+		testNodeServerAddr: testNodeServerAddr,
 	}
 }
 
 type reactRouter struct {
-	fileServer http.Handler
-	staticDir  string
+	fileServer         http.Handler
+	staticDir          string
+	testNodeServerAddr string
 }
 
 func (router *reactRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -49,7 +51,7 @@ func (router *reactRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (router *reactRouter) serveCreateReactApp(w http.ResponseWriter, r *http.Request) {
 	u := &url.URL{}
 	*u = *r.URL
-	u.Host = "localhost:3000"
+	u.Host = router.testNodeServerAddr
 	u.Scheme = "http"
 
 	router.reverseProxy(w, r, u)
