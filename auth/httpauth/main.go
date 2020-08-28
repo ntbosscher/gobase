@@ -21,7 +21,7 @@ func init() {
 	var err error
 	jwtKey, err = ioutil.ReadFile("./.jwtkey")
 	if err != nil {
-		log.Println("./.jwtkey should contain 2048 random bytes. See github.com/ntbosscher/gobase/auth/authhttp/jwtgen")
+		log.Println("./.jwtkey should contain 2048 random bytes. Run `go run github.com/ntbosscher/gobase/auth/httpauth/jwtgen` to automatically generate one")
 		log.Fatal("failed to read required file ./.jwtkey: " + err.Error())
 	}
 }
