@@ -23,8 +23,8 @@ CONNECTION_STRING=
 # TEST=
 ```
 
-If you're using authhttp, create a `.jwtkey` file. 
-You might find [jwtgen-util](./auth/authhttp/jwtgen) to be helpful.
+If you're using httpauth, create a `.jwtkey` file. 
+You might find [jwtgen-util](./auth/httpauth/jwtgen) to be helpful.
 
 ## Sample
 
@@ -34,7 +34,7 @@ package main
 import (
 	"context"
 	"github.com/ntbosscher/gobase/auth"
-	"github.com/ntbosscher/gobase/auth/authhttp"
+	"github.com/ntbosscher/gobase/auth/httpauth"
 	"github.com/ntbosscher/gobase/httpdefaults"
 	"github.com/ntbosscher/gobase/model"
 	"github.com/ntbosscher/gobase/res"
@@ -45,8 +45,8 @@ func main() {
 	router := res.NewRouter()
 	router.Use(
 		model.AttachTxHandler,
-		authhttp.Middleware(authhttp.Config{
-			CredentialChecker: func(ctx context.Context, credential *authhttp.Credential) (*auth.UserInfo, error) {
+		httpauth.Middleware(httpauth.Config{
+			CredentialChecker: func(ctx context.Context, credential *httpauth.Credential) (*auth.UserInfo, error) {
 				// db lookup
 				return &auth.UserInfo{
 					UserID: 103,

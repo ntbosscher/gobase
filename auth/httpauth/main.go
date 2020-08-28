@@ -1,4 +1,4 @@
-package authhttp
+package httpauth
 
 import (
 	"context"

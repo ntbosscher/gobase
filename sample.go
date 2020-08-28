@@ -14,8 +14,8 @@ func main() {
 	router := res.NewRouter()
 	router.Use(
 		model.AttachTxHandler,
-		authhttp.Middleware(authhttp.Config{
-			CredentialChecker: func(ctx context.Context, credential *authhttp.Credential) (*auth.UserInfo, error) {
+		httpauth.Middleware(httpauth.Config{
+			CredentialChecker: func(ctx context.Context, credential *httpauth.Credential) (*auth.UserInfo, error) {
 				// db lookup
 				return &auth.UserInfo{
 					UserID: 103,
