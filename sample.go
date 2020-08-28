@@ -12,16 +12,15 @@ import (
 
 func main() {
 	router := res.NewRouter()
-	router.Use(
-		model.AttachTxHandler,
-		httpauth.Middleware(httpauth.Config{
-			CredentialChecker: func(ctx context.Context, credential *httpauth.Credential) (*auth.UserInfo, error) {
-				// db lookup
-				return &auth.UserInfo{
-					UserID: 103,
-				}, nil
-			},
-		}))
+	router.Use(model.AttachTxHandler)
+	httpauth.Setup(router, httpauth.Config{
+		CredentialChecker: func(ctx context.Context, credential *httpauth.Credential) (*auth.UserInfo, error) {
+			// db lookup
+			return &auth.UserInfo{
+				UserID: 103,
+			}, nil
+		},
+	})
 
 	router.ReactApp("/", "./react-app/build", "localhost:3000")
 	router.Get("/api/customers", getCustomers)

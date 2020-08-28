@@ -69,6 +69,9 @@ type Config struct {
 	// route prefixes that don't require authentication
 	PublicRoutePrefixes []string
 
+	// exact match request paths that don't require authentication
+	IgnoreRoutes []string
+
 	// filters each request after authentication has been checked
 	// default: nil
 	PerRequestFilter PerRequestFilter
@@ -84,7 +87,25 @@ func (c Config) getAccessTokenCookieName() string {
 	return useDefault(c.AccessTokenCookieName, "token")
 }
 
+func Setup(router *res.Router, config Config) {
+	loginPath := useDefault(config.LoginPath, defaultLoginEndpoint)
+	router.Post(loginPath, loginHandler(&config))
+	logoutPath := useDefault(config.LogoutPath, defaultLogoutEndpoint)
+	router.Post(logoutPath, logoutHandler(&config))
+	router.Get(logoutPath, logoutHandler(&config))
+	refreshPath := useDefault(config.RefreshPath, defaultRefreshEndpoint)
+	router.Post(refreshPath, refreshHandler(&config))
+
+	config.IgnoreRoutes = append(config.IgnoreRoutes, loginPath, logoutPath, refreshPath)
+
+	router.Use(middleware(config))
+}
+
 func Middleware(config Config) func(http.Handler) http.Handler {
+	panic("deprecated")
+}
+
+func middleware(config Config) func(http.Handler) http.Handler {
 
 	if config.CredentialChecker == nil {
 		log.Fatal("github.com/ntbosscher/gobase/auth/authhttp.Middleware(config): config requires CredentialChecker")
@@ -94,13 +115,8 @@ func Middleware(config Config) func(http.Handler) http.Handler {
 		return &server{
 			perRequestFilter:         config.PerRequestFilter,
 			next:                     h,
-			loginEndpoint:            useDefault(config.LoginPath, defaultLoginEndpoint),
-			loginHandler:             res.WrapHTTPFunc(loginHandler(&config)),
-			refreshEndpoint:          useDefault(config.RefreshPath, defaultRefreshEndpoint),
-			refreshHandler:           res.WrapHTTPFunc(refreshHandler(&config)),
-			logoutEndpoint:           useDefault(config.LogoutPath, defaultLogoutEndpoint),
-			logoutHandler:            res.WrapHTTPFunc(logoutHandler(&config)),
 			ignoreRoutesWithPrefixes: config.PublicRoutePrefixes,
+			ignoreRoutes:             config.IgnoreRoutes,
 			authHandler:              authHandler(&config),
 		}
 	}
@@ -117,13 +133,8 @@ func useDefault(str string, defaultStr string) string {
 type server struct {
 	next                     http.Handler
 	perRequestFilter         PerRequestFilter
-	loginEndpoint            string
-	loginHandler             http.HandlerFunc
-	refreshEndpoint          string
-	refreshHandler           http.HandlerFunc
-	logoutEndpoint           string
-	logoutHandler            http.HandlerFunc
 	ignoreRoutesWithPrefixes []string
+	ignoreRoutes             []string
 	authHandler              func(request *res.Request) (res.Responder, context.Context)
 }
 
@@ -132,14 +143,12 @@ var defaultRefreshEndpoint = "/api/auth/refresh"
 var defaultLogoutEndpoint = "/api/auth/logout"
 
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "POST" && r.URL.Path == s.loginEndpoint {
-		s.loginHandler.ServeHTTP(w, r)
-		return
-	}
 
-	if r.URL.Path == s.logoutEndpoint {
-		s.logoutHandler.ServeHTTP(w, r)
-		return
+	for _, path := range s.ignoreRoutes {
+		if r.URL.Path == path {
+			s.next.ServeHTTP(w, r)
+			return
+		}
 	}
 
 	for _, prefix := range s.ignoreRoutesWithPrefixes {
