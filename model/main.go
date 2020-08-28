@@ -15,7 +15,6 @@ import (
 )
 
 var db *sqlx.DB
-var VerboseLogging = false
 
 func init() {
 	db = createConnection()
@@ -47,7 +46,7 @@ func debugLogger() *log.Logger {
 		return _debugLogger
 	}
 
-	if VerboseLogging {
+	if EnableVerboseLogging {
 		_debugLogger = log.New(os.Stdout, "tx-debug: ", log.Ldate|log.Ltime)
 	} else {
 		_debugLogger = log.New(ioutil.Discard, "", log.Flags())
@@ -81,7 +80,7 @@ func (router *txRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cleanup, err := BeginTx(ctx, "tx-router:"+r.Method+r.URL.String())
 	if err != nil {
-		log.Println(err)
+		verboseError(err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(`{"error": "Unable to start transaction"}`))
 		return
@@ -94,9 +93,17 @@ func (router *txRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if !getInfo(ctx).commitCalled {
 		if err = Commit(ctx); err != nil {
-			log.Println(err)
+			verboseError(err)
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(`{"error": "Unable to complete transaction"}`))
 		}
 	}
+}
+
+func verboseError(err error) {
+	if !EnableVerboseLogging {
+		return
+	}
+
+	log.Println("gobase/model: " + err.Error())
 }

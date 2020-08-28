@@ -2,35 +2,49 @@ package model
 
 import (
 	"context"
-	"fmt"
 	sq "github.com/Masterminds/squirrel"
 	"log"
 )
 
+var EnableVerboseLogging = false
+
+func verboseLog(err error, query string, args ...interface{}) {
+	if !EnableVerboseLogging {
+		return
+	}
+
+	log.Println("query failed: " + err.Error())
+	log.Println("query input: ", query, args)
+}
+
 func ExecContext(ctx context.Context, query string, args ...interface{}) error {
 	_, err := Tx(ctx).ExecContext(ctx, query, args...)
+	verboseLog(err, query, args...)
 	return err
 }
 
 func Insert(ctx context.Context, query string, args ...interface{}) (id int64, err error) {
 	result, err := Tx(ctx).ExecContext(ctx, query, args...)
 	if err != nil {
+		verboseLog(err, query, args...)
 		return
 	}
 
 	id, err = result.LastInsertId()
+	verboseLog(err, query, args...)
 	return
 }
 
 func GetContext(ctx context.Context, dest interface{}, query string, args ...interface{}) error {
-	return Tx(ctx).GetContext(ctx, dest, query, args...)
+	err := Tx(ctx).GetContext(ctx, dest, query, args...)
+	verboseLog(err, query, args...)
+	return err
 }
 
 func SelectContextString(ctx context.Context, dest interface{}, sql string, args ...interface{}) error {
 	err := Tx(ctx).SelectContext(ctx, dest, sql, args...)
 	if err != nil {
-		log.Println(sql)
-		log.Println(err.Error())
+		verboseLog(err, sql, args...)
 		return err
 	}
 
@@ -44,13 +58,7 @@ func SelectContext(ctx context.Context, dest interface{}, qr sq.SelectBuilder) e
 		return err
 	}
 
-	if VerboseLogging {
-		fmt.Println("----")
-		fmt.Println(sql)
-		fmt.Print("args: ")
-		fmt.Println(args...)
-		fmt.Println("----")
-	}
+	verboseLog(err, sql, args...)
 
 	return SelectContextString(ctx, dest, sql, args...)
 }
