@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"github.com/ntbosscher/gobase/auth"
-	"github.com/ntbosscher/gobase/auth/authhttp"
+	"github.com/ntbosscher/gobase/auth/httpauth"
 	"github.com/ntbosscher/gobase/httpdefaults"
 	"github.com/ntbosscher/gobase/model"
 	"github.com/ntbosscher/gobase/res"
