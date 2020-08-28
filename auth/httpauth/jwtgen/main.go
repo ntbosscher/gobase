@@ -20,9 +20,11 @@ func main() {
 		log.Fatal("failed to fill the buffer")
 	}
 
-	if err := ioutil.WriteFile("./jwtkey", buf, os.ModePerm); err != nil {
+	file := "./.jwtkey"
+
+	if err := ioutil.WriteFile(file, buf, os.ModePerm); err != nil {
 		log.Fatal(err)
 	}
 
-	log.Println("wrote cryptographically random bytes to ./jwtkey")
+	log.Println("wrote cryptographically random bytes to " + file)
 }
