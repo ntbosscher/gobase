@@ -120,10 +120,27 @@ func Ok(data ...interface{}) Responder {
 		dt = data
 	}
 
+	dt = fixNilList(dt)
+
 	return &responder{
 		status: http.StatusOK,
 		data:   dt,
 	}
+}
+
+func fixNilList(input interface{}) interface{} {
+	typ := reflect.TypeOf(input)
+
+	switch typ.Kind() {
+	case reflect.Slice:
+		fallthrough
+	case reflect.Array:
+		if reflect.ValueOf(input).IsNil() {
+			return []int{}
+		}
+	}
+
+	return input
 }
 
 func List(list interface{}) Responder {
