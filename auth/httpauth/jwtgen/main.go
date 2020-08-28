@@ -1,27 +1,28 @@
-package gen
+package main
 
 import (
 	"crypto/rand"
 	"io/ioutil"
+	"log"
 	"os"
-	"testing"
 )
 
-func TestJWTGen(t *testing.T) {
-
+func main() {
 	rsaKeyLen := 2048
 	buf := make([]byte, rsaKeyLen)
 
 	i, err := rand.Read(buf)
 	if err != nil {
-		t.Fatal(err)
+		log.Fatal(err)
 	}
 
 	if i != rsaKeyLen {
-		t.Fatal("failed to fill the buffer")
+		log.Fatal("failed to fill the buffer")
 	}
 
 	if err := ioutil.WriteFile("./jwtkey", buf, os.ModePerm); err != nil {
-		t.Fatal(err)
+		log.Fatal(err)
 	}
+
+	log.Println("wrote cryptographically random bytes to ./jwtkey")
 }
