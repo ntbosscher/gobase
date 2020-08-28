@@ -68,7 +68,13 @@ type Config struct {
 
 	// route prefixes that don't require authentication
 	PublicRoutePrefixes []string
+
+	// filters each request after authentication has been checked
+	// default: nil
+	PerRequestFilter PerRequestFilter
 }
+
+type PerRequestFilter func(ctx context.Context, r *http.Request, user *auth.UserInfo) error
 
 func (c Config) getRefreshTokenCookieName() string {
 	return useDefault(c.RefreshTokenCookieName, "refresh-token")
@@ -86,6 +92,7 @@ func Middleware(config Config) func(http.Handler) http.Handler {
 
 	return func(h http.Handler) http.Handler {
 		return &server{
+			perRequestFilter:         config.PerRequestFilter,
 			next:                     h,
 			loginEndpoint:            useDefault(config.LoginPath, defaultLoginEndpoint),
 			loginHandler:             res.WrapHTTPFunc(loginHandler(&config)),
@@ -109,6 +116,7 @@ func useDefault(str string, defaultStr string) string {
 
 type server struct {
 	next                     http.Handler
+	perRequestFilter         PerRequestFilter
 	loginEndpoint            string
 	loginHandler             http.HandlerFunc
 	refreshEndpoint          string
@@ -148,14 +156,24 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	r = r.WithContext(ctx)
+
+	if s.perRequestFilter != nil {
+		if err := s.perRequestFilter(ctx, r, auth.Current(ctx)); err != nil {
+			notAuthenticated.Respond(w, r)
+			return
+		}
+	}
+
 	s.next.ServeHTTP(w, r)
 }
+
+var notAuthenticated = res.AppError("not authenticated")
 
 func authHandler(config *Config) func(rq *res.Request) (res.Responder, context.Context) {
 	return func(rq *res.Request) (res.Responder, context.Context) {
 		tokenString := cookieOrBearerToken(rq, config.getAccessTokenCookieName())
 		if tokenString == "" {
-			return res.AppError("not authenticated"), nil
+			return notAuthenticated, nil
 		}
 
 		user, err := parseJwt(tokenString)
