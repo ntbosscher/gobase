@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"time"
+	"unicode"
 )
 
 var db *sqlx.DB
@@ -30,6 +31,7 @@ func createConnection() *sqlx.DB {
 	db.SetConnMaxLifetime(time.Minute)
 	db.SetMaxIdleConns(5)
 	db.SetMaxOpenConns(10)
+	db.MapperFunc(LowerCamelCaseStructNameMapping)
 
 	err = db.Ping()
 	if err != nil {
@@ -37,6 +39,46 @@ func createConnection() *sqlx.DB {
 	}
 
 	return db
+}
+
+// Updates the default struct to column name mapper (you can still bypass this using the `db:"col_name"` tag)
+// sample:
+//   // struct:
+//   type Company struct { ID int, ContactPerson int }
+//
+//   // query:
+//   select id, contactPerson from company where id = 1;
+//
+//   // mapper:
+//   mapper("ID") // id
+//   mapper("ContactPerson") // contactPerson
+//
+func SetStructNameMapping(mapper func(structCol string) (colName string)) {
+	db.MapperFunc(mapper)
+}
+
+func LowerCamelCaseStructNameMapping(structCol string) string {
+	if len(structCol) == 0 {
+		return structCol
+	}
+
+	if structCol == "ID" {
+		return "id"
+	}
+
+	runes := []rune(structCol)
+	runes[0] = unicode.ToLower(runes[0])
+
+	length := len(runes)
+
+	if length > 2 {
+		if string(runes[length-2:]) == "ID" {
+			runes[length-2] = 'I'
+			runes[length-1] = 'd'
+		}
+	}
+
+	return string(runes)
 }
 
 var _debugLogger *log.Logger
