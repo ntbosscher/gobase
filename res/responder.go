@@ -196,7 +196,13 @@ func UnProcessable() Responder {
 	}
 }
 
-func NotAuthorized() Responder {
+func NotAuthorized(reason ...string) Responder {
+
+	msg := "not authorized"
+	if len(reason) > 0 {
+		msg += ": " + strings.Join(reason, ", ")
+	}
+
 	return &responder{
 		status: http.StatusUnauthorized,
 		data:   errorData("not authorized"),

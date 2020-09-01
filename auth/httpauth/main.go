@@ -3,7 +3,6 @@ package httpauth
 import (
 	"context"
 	"errors"
-	"fmt"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/ntbosscher/gobase/auth"
 	"github.com/ntbosscher/gobase/env"
@@ -176,7 +175,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.next.ServeHTTP(w, r)
 }
 
-var notAuthenticated = res.AppError("not authenticated")
+var notAuthenticated = res.NotAuthorized()
 
 func authHandler(config *Config) func(rq *res.Request) (res.Responder, context.Context) {
 	return func(rq *res.Request) (res.Responder, context.Context) {
@@ -187,7 +186,7 @@ func authHandler(config *Config) func(rq *res.Request) (res.Responder, context.C
 
 		user, err := parseJwt(tokenString)
 		if err != nil {
-			return res.AppError(fmt.Sprint("not authenticated: ", err)), nil
+			return res.NotAuthorized(err.Error()), nil
 		}
 
 		ctx := auth.SetUser(rq.Context(), user)
