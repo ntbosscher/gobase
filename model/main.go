@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 	"unicode"
 )
@@ -57,6 +58,34 @@ func SetStructNameMapping(mapper func(structCol string) (colName string)) {
 	db.MapperFunc(mapper)
 }
 
+func SnakeCaseStructNameMapping(structCol string) string {
+
+	if len(structCol) == 0 {
+		return structCol
+	}
+
+	structCol = strings.Replace(structCol, "ID", "Id", -1)
+	structCol = strings.Replace(structCol, "URL", "Url", -1)
+
+	src := []rune(structCol)
+	var dst []rune
+
+	for i, c := range src {
+		if i == 0 {
+			dst = append(dst, unicode.ToLower(c))
+			continue
+		}
+
+		if unicode.IsUpper(c) {
+			dst = append(dst, '_', unicode.ToLower(c))
+		}
+
+		dst = append(dst, c)
+	}
+
+	return string(dst)
+}
+
 func LowerCamelCaseStructNameMapping(structCol string) string {
 	if len(structCol) == 0 {
 		return structCol
@@ -66,17 +95,15 @@ func LowerCamelCaseStructNameMapping(structCol string) string {
 		return "id"
 	}
 
+	if structCol == "URL" {
+		return "url"
+	}
+
+	structCol = strings.Replace(structCol, "ID", "Id", -1)
+	structCol = strings.Replace(structCol, "URL", "Url", -1)
+
 	runes := []rune(structCol)
 	runes[0] = unicode.ToLower(runes[0])
-
-	length := len(runes)
-
-	if length > 2 {
-		if string(runes[length-2:]) == "ID" {
-			runes[length-2] = 'I'
-			runes[length-1] = 'd'
-		}
-	}
 
 	return string(runes)
 }
