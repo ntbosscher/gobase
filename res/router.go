@@ -11,6 +11,8 @@ import (
 	"strings"
 )
 
+var Verbose = false
+
 func WrapGorilla(router *mux.Router) *Router {
 	return &Router{
 		next: router,
@@ -27,6 +29,10 @@ func NewRouter() *Router {
 
 func (rt *Router) Get(path string, handler HandlerFunc2) {
 	rt.Route("GET", path, handler)
+}
+
+func (rt *Router) Put(path string, handler HandlerFunc2) {
+	rt.Route("PUT", path, handler)
 }
 
 func (rt *Router) Post(path string, handler HandlerFunc2) {
