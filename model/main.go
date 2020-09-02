@@ -89,16 +89,51 @@ func (router *txRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	defer cleanup()
 	r = r.WithContext(ctx)
+	writer := &httpWriteWrapper{next: w}
 
-	router.withTx.ServeHTTP(w, r)
+	router.withTx.ServeHTTP(writer, r)
 
-	if !getInfo(ctx).commitCalled {
-		if err = Commit(ctx); err != nil {
-			verboseError(err)
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(`{"error": "Unable to complete transaction"}`))
-		}
+	if getInfo(ctx).commitCalled {
+		return
 	}
+
+	if writer.StatusCode >= 400 {
+		if err = Rollback(ctx); err != nil {
+			verboseError(err)
+		}
+
+		return
+	}
+
+	if err = Commit(ctx); err != nil {
+		verboseError(err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error": "Unable to complete transaction"}`))
+	}
+
+}
+
+type httpWriteWrapper struct {
+	StatusCode int
+	next       http.ResponseWriter
+}
+
+func (h *httpWriteWrapper) Write(data []byte) (int, error) {
+	if h.StatusCode == 0 {
+		h.StatusCode = http.StatusOK
+		h.next.WriteHeader(http.StatusOK)
+	}
+
+	return h.next.Write(data)
+}
+
+func (h *httpWriteWrapper) WriteHeader(statusCode int) {
+	h.StatusCode = statusCode
+	h.next.WriteHeader(statusCode)
+}
+
+func (h *httpWriteWrapper) Header() http.Header {
+	return h.next.Header()
 }
 
 func verboseError(err error) {
