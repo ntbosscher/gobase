@@ -11,9 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"time"
-	"unicode"
 )
 
 var db *sqlx.DB
