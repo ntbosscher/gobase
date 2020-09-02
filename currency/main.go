@@ -57,7 +57,11 @@ func (n *NullCents) UnmarshalJSON(data []byte) error {
 	}
 
 	*n = NullCents{}
-	return json.Unmarshal(data, &n.Cents)
+	if err := json.Unmarshal(data, &n.Cents); err != nil {
+		return err
+	}
+
+	n.Valid = true
 }
 
 // CentsWithJsonEncoding formats json values in ##.## format
