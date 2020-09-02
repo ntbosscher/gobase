@@ -3,6 +3,7 @@ package currency
 import (
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -38,6 +39,25 @@ func (n NullCents) Value() (driver.Value, error) {
 	}
 
 	return n.Cents, nil
+}
+
+func (n NullCents) MarshalJSON() ([]byte, error) {
+	if !n.Valid {
+		return []byte("null"), nil
+	}
+
+	return json.Marshal(n.Cents)
+}
+
+func (n *NullCents) UnmarshalJSON(data []byte) error {
+
+	if string(data) == "null" {
+		*n = NullCents{}
+		return nil
+	}
+
+	*n = NullCents{}
+	return json.Unmarshal(data, &n.Cents)
 }
 
 // CentsWithJsonEncoding formats json values in ##.## format
