@@ -143,22 +143,32 @@ var defaultLogoutEndpoint = "/api/auth/logout"
 
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
+	ignoredRoute := false
+
 	for _, path := range s.ignoreRoutes {
 		if r.URL.Path == path {
-			s.next.ServeHTTP(w, r)
-			return
+			ignoredRoute = true
+			break
 		}
 	}
 
-	for _, prefix := range s.ignoreRoutesWithPrefixes {
-		if strings.HasPrefix(r.URL.Path, prefix) {
-			s.next.ServeHTTP(w, r)
-			return
+	if !ignoredRoute {
+		for _, prefix := range s.ignoreRoutesWithPrefixes {
+			if strings.HasPrefix(r.URL.Path, prefix) {
+				ignoredRoute = true
+			}
 		}
 	}
 
 	err, ctx := s.authHandler(res.NewRequest(w, r))
 	if err != nil {
+
+		// attempt to authenticate, but ignore errors
+		if ignoredRoute {
+			s.next.ServeHTTP(w, r)
+			return
+		}
+
 		err.Respond(w, r)
 		return
 	}

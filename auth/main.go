@@ -23,6 +23,10 @@ func Current(ctx context.Context) *UserInfo {
 	return ctx.Value(userKey).(*UserInfo)
 }
 
+func IsAuthenticated(ctx context.Context) bool {
+	return ctx.Value(userKey) != nil
+}
+
 func Company(ctx context.Context) int {
 	return Current(ctx).CompanyID
 }
