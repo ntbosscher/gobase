@@ -209,6 +209,16 @@ func NotAuthorized(reason ...string) Responder {
 	}
 }
 
+func ShowBasicAuthPrompt(message string) Responder {
+	return &freeformResponder{
+		respond: func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("WWW-Authenticate", `Basic realm="`+message+`"`)
+			w.WriteHeader(401)
+			w.Write([]byte("Unauthorised.\n"))
+		},
+	}
+}
+
 func errorData(str string) interface{} {
 	return map[string]interface{}{
 		"error": str,
