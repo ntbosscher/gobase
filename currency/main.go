@@ -38,7 +38,7 @@ func (n NullCents) Value() (driver.Value, error) {
 		return nil, nil
 	}
 
-	return n.Cents, nil
+	return int(n.Cents), nil
 }
 
 func (n NullCents) MarshalJSON() ([]byte, error) {
