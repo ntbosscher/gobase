@@ -3,7 +3,9 @@ package res
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/gorilla/websocket"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"sync"
@@ -11,9 +13,11 @@ import (
 )
 
 type WsConn struct {
-	next    *websocket.Conn
-	onClose chan bool
-	mu      sync.Mutex
+	id       int
+	next     *websocket.Conn
+	onClose  chan bool
+	incoming chan []byte
+	mu       sync.Mutex
 }
 
 func (w *WsConn) OnClose() <-chan bool {
@@ -40,40 +44,65 @@ func (w *WsConn) closeChan() {
 }
 
 func (w *WsConn) Read(value interface{}) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	if err := w.next.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
-		return err
-	}
-
-	return w.next.ReadJSON(value)
+	return w.WaitFor(value, 2*time.Second)
 }
 
 func (w *WsConn) WaitFor(value interface{}, duration time.Duration) error {
-	logVerbose(errors.New("waitFor:" + duration.String()))
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	logVerbose(w.id, errors.New("waitFor:"+duration.String()))
 
-	if err := w.next.SetReadDeadline(time.Now().Add(duration)); err != nil {
-		logVerbose(err)
-		return err
+	select {
+	case rd := <-w.incoming:
+		return json.Unmarshal(rd, value)
+	case <-time.After(duration):
+		return errors.New("timeout")
 	}
-
-	return w.next.ReadJSON(value)
 }
 
 func (w *WsConn) Send(value interface{}) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	logVerbose(errors.New("ws: sending message"))
+	logVerbose(w.id, errors.New("ws: sending message"))
 
 	if err := w.next.SetWriteDeadline(time.Now().Add(2 * time.Second)); err != nil {
 		return err
 	}
 
+	defer w.clearDeadlines()
 	return w.next.WriteJSON(value)
+}
+
+func (w *WsConn) receive() {
+	for {
+		select {
+		case <-w.onClose:
+			return
+		default:
+		}
+
+		logVerbose(w.id, errors.New("waiting for receive"))
+		_, r, err := w.next.NextReader()
+		if err != nil {
+			logVerbose(w.id, fmt.Errorf("failed to read: %v", err))
+			w.closeChan()
+			return
+		}
+
+		buf, err := ioutil.ReadAll(r)
+		if err != nil {
+			logVerbose(w.id, fmt.Errorf("failed to read: %v", err))
+			w.closeChan()
+			return
+		}
+
+		logVerbose(w.id, errors.New("received message"))
+
+		select {
+		case w.incoming <- buf:
+		case <-time.After(1 * time.Second):
+			continue
+		}
+	}
 }
 
 func (w *WsConn) watch() {
@@ -90,48 +119,67 @@ func (w *WsConn) watch() {
 	for {
 		select {
 		case <-w.onClose:
-			logVerbose(errors.New("websocket closed"))
+			logVerbose(w.id, errors.New("websocket closed"))
 			return
 		case <-tc.C:
 		}
 
 		if err := w.ping(); err != nil {
-			logVerbose(err)
+			logVerbose(w.id, fmt.Errorf("ping failed: %v", err))
 			return
 		}
 	}
 }
 
-func (w *WsConn) ping() error {
+func (w *WsConn) sendPing() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	logVerbose(errors.New("ws: sending ping"))
-
 	w.next.SetWriteDeadline(time.Now().Add(time.Second))
-	if err := w.next.WriteJSON("ping"); err != nil {
+	if err := w.next.WriteMessage(websocket.PingMessage, nil); err != nil {
+		logVerbose(w.id, err)
 		return err
 	}
-
-	w.next.SetReadDeadline(time.Now().Add(time.Second))
-
-	var pong string
-	if err := w.next.ReadJSON(&pong); err != nil {
-		return err
-	}
-
-	if pong != "pong" {
-		return errors.New("unexpected ping response '" + pong + "'")
-	}
-
-	logVerbose(errors.New("ws: got 'pong'"))
 
 	return nil
 }
 
-func logVerbose(err error) {
+func (w *WsConn) ping() error {
+
+	logVerbose(w.id, errors.New("ws: sending ping"))
+	pong := make(chan bool, 1)
+
+	w.next.SetPongHandler(func(appData string) error {
+
+		select {
+		case pong <- true:
+		case <-time.After(1 * time.Second):
+		}
+
+		return nil
+	})
+
+	if err := w.sendPing(); err != nil {
+		return err
+	}
+
+	select {
+	case <-pong:
+		w.clearDeadlines()
+		logVerbose(w.id, errors.New("ws: got 'pong'"))
+		return nil
+	case <-time.After(5 * time.Second):
+		return errors.New("ws: waited for pong but didn't get one")
+	}
+}
+
+func (w *WsConn) clearDeadlines() {
+	w.next.SetWriteDeadline(time.Now().Add(30 * time.Second))
+}
+
+func logVerbose(id int, err error) {
 	if Verbose {
-		log.Println("res: " + err.Error())
+		log.Println("res: ", id, err.Error())
 	}
 }
 
@@ -142,25 +190,38 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
+var websocketIdCounter = 0
+var muWebsocketIdCounter = &sync.Mutex{}
+
 // WebSocket creates an endpoint to handle websocket upgrades. handler is responsible
 // for processing and closing the connection.
 func (rt *Router) WebSocket(method string, path string, handler SocketHandler) {
+
 	rt.next.Methods(method).Path(path).HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		logVerbose(errors.New("got websocket request"))
+
+		muWebsocketIdCounter.Lock()
+		websocketIdCounter++
+		id := websocketIdCounter
+		muWebsocketIdCounter.Unlock()
+
+		logVerbose(id, errors.New("got websocket request"))
 		conn, err := upgrader.Upgrade(writer, request, nil)
 		if err != nil {
-			log.Println("websocket upgrade failed:", err)
+			logVerbose(id, fmt.Errorf("websocket upgrade failed: %v", err))
 			return
 		}
 
-		logVerbose(errors.New("websocket request upgraded"))
+		logVerbose(id, errors.New("websocket request upgraded"))
 
 		wConn := &WsConn{
-			next:    conn,
-			onClose: make(chan bool),
-			mu:      sync.Mutex{},
+			id:       id,
+			next:     conn,
+			incoming: make(chan []byte, 1),
+			onClose:  make(chan bool),
+			mu:       sync.Mutex{},
 		}
 
+		go wConn.receive()
 		go wConn.watch()
 		handler(request.Context(), wConn)
 	})
