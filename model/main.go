@@ -61,8 +61,10 @@ func debugLogger() *log.Logger {
 //
 // By default transactions will be cancelled unless Commit()
 // is called.
-func AttachTxHandler(withTx http.Handler) http.Handler {
-	return &txRouter{withTx: withTx}
+func AttachTxHandler(ignorePaths ...string) func(withTx http.Handler) http.Handler {
+	return func(withTx http.Handler) http.Handler {
+		return &txRouter{withTx: withTx, ignorePaths: ignorePaths}
+	}
 }
 
 type transactionContextKeyType = string
@@ -70,10 +72,18 @@ type transactionContextKeyType = string
 var transactionContextKey transactionContextKeyType = "transaction-context-key"
 
 type txRouter struct {
-	withTx http.Handler
+	withTx      http.Handler
+	ignorePaths []string
 }
 
 func (router *txRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+
+	for _, path := range router.ignorePaths {
+		if r.URL.Path == path {
+			router.withTx.ServeHTTP(w, r)
+			return
+		}
+	}
 
 	ctx := r.Context()
 	ctx, cancel := context.WithCancel(ctx)
@@ -89,7 +99,7 @@ func (router *txRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	defer cleanup()
 	r = r.WithContext(ctx)
-	writer := &httpWriteWrapper{next: w}
+	writer := &httpWriteWrapper{ResponseWriter: w}
 
 	router.withTx.ServeHTTP(writer, r)
 
@@ -115,25 +125,24 @@ func (router *txRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 type httpWriteWrapper struct {
 	StatusCode int
-	next       http.ResponseWriter
+	http.ResponseWriter
 }
 
 func (h *httpWriteWrapper) Write(data []byte) (int, error) {
 	if h.StatusCode == 0 {
-		h.StatusCode = http.StatusOK
-		h.next.WriteHeader(http.StatusOK)
+		h.WriteHeader(http.StatusOK)
 	}
 
-	return h.next.Write(data)
+	return h.ResponseWriter.Write(data)
 }
 
 func (h *httpWriteWrapper) WriteHeader(statusCode int) {
 	h.StatusCode = statusCode
-	h.next.WriteHeader(statusCode)
+	h.ResponseWriter.WriteHeader(statusCode)
 }
 
 func (h *httpWriteWrapper) Header() http.Header {
-	return h.next.Header()
+	return h.ResponseWriter.Header()
 }
 
 func verboseError(err error) {

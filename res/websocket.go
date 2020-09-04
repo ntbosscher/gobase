@@ -50,9 +50,24 @@ func (w *WsConn) Read(value interface{}) error {
 	return w.next.ReadJSON(value)
 }
 
+func (w *WsConn) WaitFor(value interface{}, duration time.Duration) error {
+	logVerbose(errors.New("waitFor:" + duration.String()))
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if err := w.next.SetReadDeadline(time.Now().Add(duration)); err != nil {
+		logVerbose(err)
+		return err
+	}
+
+	return w.next.ReadJSON(value)
+}
+
 func (w *WsConn) Send(value interface{}) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
+	logVerbose(errors.New("ws: sending message"))
 
 	if err := w.next.SetWriteDeadline(time.Now().Add(2 * time.Second)); err != nil {
 		return err
@@ -75,6 +90,7 @@ func (w *WsConn) watch() {
 	for {
 		select {
 		case <-w.onClose:
+			logVerbose(errors.New("websocket closed"))
 			return
 		case <-tc.C:
 		}
@@ -90,20 +106,25 @@ func (w *WsConn) ping() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
+	logVerbose(errors.New("ws: sending ping"))
+
 	w.next.SetWriteDeadline(time.Now().Add(time.Second))
-	if err := w.next.WriteMessage(websocket.PingMessage, nil); err != nil {
+	if err := w.next.WriteJSON("ping"); err != nil {
 		return err
 	}
 
 	w.next.SetReadDeadline(time.Now().Add(time.Second))
-	t, _, err := w.next.ReadMessage()
-	if err != nil {
+
+	var pong string
+	if err := w.next.ReadJSON(&pong); err != nil {
 		return err
 	}
 
-	if t != websocket.PongMessage {
-		return errors.New("invalid ping response message type")
+	if pong != "pong" {
+		return errors.New("unexpected ping response '" + pong + "'")
 	}
+
+	logVerbose(errors.New("ws: got 'pong'"))
 
 	return nil
 }
@@ -125,11 +146,14 @@ var upgrader = websocket.Upgrader{
 // for processing and closing the connection.
 func (rt *Router) WebSocket(method string, path string, handler SocketHandler) {
 	rt.next.Methods(method).Path(path).HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		logVerbose(errors.New("got websocket request"))
 		conn, err := upgrader.Upgrade(writer, request, nil)
 		if err != nil {
 			log.Println("websocket upgrade failed:", err)
 			return
 		}
+
+		logVerbose(errors.New("websocket request upgraded"))
 
 		wConn := &WsConn{
 			next:    conn,

@@ -12,7 +12,7 @@ import (
 
 func main() {
 	router := res.NewRouter()
-	router.Use(model.AttachTxHandler)
+	router.Use(model.AttachTxHandler("/websocket"))
 	httpauth.Setup(router, httpauth.Config{
 		CredentialChecker: func(ctx context.Context, credential *httpauth.Credential) (*auth.UserInfo, error) {
 			// db lookup
