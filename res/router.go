@@ -2,9 +2,7 @@ package res
 
 import (
 	"context"
-	"fmt"
 	"github.com/gorilla/mux"
-	"log"
 	"mime/multipart"
 	"net/http"
 	"strconv"
@@ -118,6 +116,10 @@ type Request struct {
 	wr  http.ResponseWriter
 
 	parsedMultipart bool
+	multipartErr    error
+
+	parsedForm bool
+	formErr    error
 }
 
 func (r *Request) Cookie(name string) string {
@@ -137,16 +139,47 @@ func (r *Request) Writer() http.ResponseWriter {
 	return r.wr
 }
 
+func (r *Request) ensureFormParsed() bool {
+	if !r.parsedForm {
+		r.parsedForm = true
+		err := r.req.ParseForm()
+		if err != nil {
+			r.formErr = err
+		}
+	}
+
+	return r.req.Form != nil
+}
+
+func (r *Request) FormError() error {
+	r.ensureFormParsed()
+	return r.formErr
+}
+
+// FormValue gets the value of the form if it exists
+// If the form is invalid, returns blank string
+func (r *Request) FormValue(key string) string {
+	if !r.ensureFormParsed() {
+		return ""
+	}
+
+	return r.req.PostForm.Get(key)
+}
+
 func (r *Request) ensureMultipartParsed() bool {
 	if !r.parsedMultipart {
 		r.parsedMultipart = true
 		err := r.req.ParseMultipartForm(int64(MultipartMaxFormSize))
 		if err != nil {
-			log.Println(fmt.Sprintf("failed to parse multipart form for %s: %s", r.req.URL.Path, err.Error()))
+			r.multipartErr = err
 		}
 	}
 
 	return r.req.MultipartForm != nil
+}
+func (r *Request) MultipartError() error {
+	r.ensureMultipartParsed()
+	return r.multipartErr
 }
 
 // MultipartValue gets the value from the multipart form if it exists

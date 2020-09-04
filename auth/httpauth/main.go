@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/ntbosscher/gobase/auth"
+	"github.com/ntbosscher/gobase/auth/httpauth/oauth"
 	"github.com/ntbosscher/gobase/env"
 	"github.com/ntbosscher/gobase/res"
 	"io/ioutil"
@@ -15,6 +16,7 @@ import (
 )
 
 var jwtKey []byte
+var IsVerbose bool
 
 func init() {
 	var err error
@@ -28,6 +30,10 @@ func init() {
 type ActiveUserValidator func(ctx context.Context, user *auth.UserInfo) error
 
 type Config struct {
+
+	// Optional oauth config
+	OAuth *oauth.Config
+
 	// Checks user credentials on login
 	CredentialChecker CredentialChecker
 
@@ -48,6 +54,19 @@ type Config struct {
 	// route that will accept logout requests
 	// default: /api/auth/logout
 	LogoutPath string
+
+	// route/url to redirect logout requests to after they've been logged out
+	// default: (no redirect)
+	LogoutRedirectTo string
+
+	// POST route that will accept register requests
+	// default: /api/auth/register
+	RegisterPath string
+
+	// Handler for registration requests. If a non-nil auth.UserInfo is returned
+	// httpauth will setup the user session
+	// if nil, register feature will be disabled
+	RegisterHandler func(rq *res.Request) (*auth.UserInfo, res.Responder)
 
 	// POST route that will accept jwt refresh requests
 	// default: /api/auth/refresh
@@ -86,7 +105,7 @@ func (c Config) getAccessTokenCookieName() string {
 	return useDefault(c.AccessTokenCookieName, "token")
 }
 
-func Setup(router *res.Router, config Config) {
+func Setup(router *res.Router, config Config) SessionSetter {
 	loginPath := useDefault(config.LoginPath, defaultLoginEndpoint)
 	router.Post(loginPath, loginHandler(&config))
 	logoutPath := useDefault(config.LogoutPath, defaultLogoutEndpoint)
@@ -95,14 +114,28 @@ func Setup(router *res.Router, config Config) {
 	refreshPath := useDefault(config.RefreshPath, defaultRefreshEndpoint)
 	router.Post(refreshPath, refreshHandler(&config))
 
+	if config.RegisterHandler != nil {
+		router.Post(useDefault(config.RegisterPath, defaultRegisterEndpoint), registerHandler(&config))
+	}
+
 	config.IgnoreRoutes = append(config.IgnoreRoutes, loginPath, logoutPath, refreshPath)
 
+	if config.OAuth != nil {
+		config.IgnoreRoutes = append(config.IgnoreRoutes, config.OAuth.CallbackPath)
+	}
+
+	sessionSetter := func(rq *res.Request, user *auth.UserInfo) error {
+		_, _, err := setupSession(rq, user, &config)
+		return err
+	}
+
+	oauth.Setup(router, config.OAuth, sessionSetter)
 	router.Use(middleware(config))
+
+	return sessionSetter
 }
 
-func Middleware(config Config) func(http.Handler) http.Handler {
-	panic("deprecated")
-}
+type SessionSetter func(rq *res.Request, user *auth.UserInfo) error
 
 func middleware(config Config) func(http.Handler) http.Handler {
 
@@ -137,9 +170,10 @@ type server struct {
 	authHandler              func(request *res.Request) (res.Responder, context.Context)
 }
 
-var defaultLoginEndpoint = "/api/auth/login"
-var defaultRefreshEndpoint = "/api/auth/refresh"
-var defaultLogoutEndpoint = "/api/auth/logout"
+const defaultLoginEndpoint = "/api/auth/login"
+const defaultRefreshEndpoint = "/api/auth/refresh"
+const defaultLogoutEndpoint = "/api/auth/logout"
+const defaultRegisterEndpoint = "/api/auth/register"
 
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
@@ -185,7 +219,25 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.next.ServeHTTP(w, r)
 }
 
+func logVerbose(err error) {
+	if IsVerbose {
+		log.Println(err)
+	}
+}
+
 var notAuthenticated = res.NotAuthorized()
+
+func registerHandler(config *Config) func(rq *res.Request) res.Responder {
+	return func(rq *res.Request) res.Responder {
+		info, response := config.RegisterHandler(rq)
+		if info != nil {
+			_, _, err := setupSession(rq, info, config)
+			logVerbose(err)
+		}
+
+		return response
+	}
+}
 
 func authHandler(config *Config) func(rq *res.Request) (res.Responder, context.Context) {
 	return func(rq *res.Request) (res.Responder, context.Context) {
@@ -268,6 +320,39 @@ func refreshHandler(config *Config) res.HandlerFunc2 {
 	}
 }
 
+func setupSession(rq *res.Request, user *auth.UserInfo, config *Config) (accessToken string, refreshToken string, err error) {
+	accessToken, accessTokenExpiry, err := createAccessToken(user, config.AccessTokenLifeTime)
+	if err != nil {
+		err = errors.New("Failed to create access token: " + err.Error())
+		return
+	}
+
+	refreshToken, refreshTokenExpiry, err := createRefreshToken(user, config.RefreshTokenLifeTime)
+	if err != nil {
+		err = errors.New("Failed to create refresh token: " + err.Error())
+		return
+	}
+
+	http.SetCookie(rq.Writer(), &http.Cookie{
+		Secure:  !env.IsTesting,
+		Name:    config.getAccessTokenCookieName(),
+		Value:   accessToken,
+		Expires: accessTokenExpiry,
+		Path:    "/",
+	})
+
+	http.SetCookie(rq.Writer(), &http.Cookie{
+		Secure:   !env.IsTesting,
+		HttpOnly: true,
+		Name:     config.getRefreshTokenCookieName(),
+		Value:    refreshToken,
+		Expires:  refreshTokenExpiry,
+		Path:     "/",
+	})
+
+	return
+}
+
 func loginHandler(config *Config) res.HandlerFunc2 {
 	return func(rq *res.Request) res.Responder {
 		creds := &Credential{}
@@ -280,32 +365,10 @@ func loginHandler(config *Config) res.HandlerFunc2 {
 			return res.AppError(err.Error())
 		}
 
-		accessToken, accessTokenExpiry, err := createAccessToken(user, config.AccessTokenLifeTime)
+		accessToken, refreshToken, err := setupSession(rq, user, config)
 		if err != nil {
-			return res.AppError("Failed to create access token: " + err.Error())
+			return res.Error(err)
 		}
-
-		refreshToken, refreshTokenExpiry, err := createRefreshToken(user, config.RefreshTokenLifeTime)
-		if err != nil {
-			return res.AppError("Failed to create refresh token: " + err.Error())
-		}
-
-		http.SetCookie(rq.Writer(), &http.Cookie{
-			Secure:  !env.IsTesting,
-			Name:    config.getAccessTokenCookieName(),
-			Value:   accessToken,
-			Expires: accessTokenExpiry,
-			Path:    "/",
-		})
-
-		http.SetCookie(rq.Writer(), &http.Cookie{
-			Secure:   !env.IsTesting,
-			HttpOnly: true,
-			Name:     config.getRefreshTokenCookieName(),
-			Value:    refreshToken,
-			Expires:  refreshTokenExpiry,
-			Path:     "/",
-		})
 
 		return res.Ok(map[string]interface{}{
 			"accessToken":  accessToken,

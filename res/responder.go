@@ -62,6 +62,16 @@ func (resp *responder) Respond(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func Html(str string) Responder {
+	return &freeformResponder{
+		respond: func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(str))
+		},
+	}
+}
+
 func Func(method func(w http.ResponseWriter)) Responder {
 	return &freeformResponder{respond: func(w http.ResponseWriter, r *http.Request) {
 		method(w)
@@ -72,6 +82,10 @@ func WrapHTTP(server http.Handler) Responder {
 	return &freeformResponder{respond: func(w http.ResponseWriter, r *http.Request) {
 		server.ServeHTTP(w, r)
 	}}
+}
+
+func Error(err error) Responder {
+	return AppError(err.Error())
 }
 
 type freeformResponder struct {
