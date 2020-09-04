@@ -47,6 +47,8 @@ type setupSessionFunc func(rq *res.Request, user *auth.UserInfo) error
 
 func Setup(router *res.Router, config *Config, setupSession setupSessionFunc) {
 
+	goth.UseProviders(config.Providers...)
+
 	key := env.Require("OAUTH_SESSION_SECRET")
 	maxAge := 24 * time.Hour
 
