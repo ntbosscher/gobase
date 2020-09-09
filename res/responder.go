@@ -169,7 +169,7 @@ func List(list interface{}) Responder {
 
 func AppError(str string) Responder {
 	return &responder{
-		status: http.StatusOK,
+		status: http.StatusInternalServerError,
 		data:   errorData(str),
 	}
 }
