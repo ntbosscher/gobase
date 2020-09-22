@@ -58,7 +58,8 @@ func (rt *Router) Use(mwf ...mux.MiddlewareFunc) {
 }
 
 func (rt *Router) StaticFileDir(urlPrefix string, srcDir string) {
-	rt.next.PathPrefix(urlPrefix).Handler(http.FileServer(http.Dir(srcDir)))
+	fileServer := http.StripPrefix(urlPrefix, http.FileServer(http.Dir(srcDir)))
+	rt.next.PathPrefix(urlPrefix).Handler(fileServer)
 }
 
 // ReactApp serves the react app located at srcDir. This works the similar to
