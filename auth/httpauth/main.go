@@ -129,7 +129,10 @@ func Setup(router *res.Router, config Config) SessionSetter {
 		return err
 	}
 
-	oauth.Setup(router, config.OAuth, sessionSetter)
+	if config.OAuth != nil {
+		oauth.Setup(router, config.OAuth, sessionSetter)
+	}
+
 	router.Use(middleware(config))
 
 	return sessionSetter
