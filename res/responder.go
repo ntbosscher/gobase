@@ -145,6 +145,11 @@ func Ok(data ...interface{}) Responder {
 func fixNilList(input interface{}) interface{} {
 	typ := reflect.TypeOf(input)
 
+	// interface is untyped nil
+	if typ == nil {
+		return input
+	}
+
 	switch typ.Kind() {
 	case reflect.Slice:
 		fallthrough
