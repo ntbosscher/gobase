@@ -193,6 +193,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		for _, prefix := range s.ignoreRoutesWithPrefixes {
 			if strings.HasPrefix(r.URL.Path, prefix) {
 				ignoredRoute = true
+				break
 			}
 		}
 	}
@@ -212,7 +213,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	r = r.WithContext(ctx)
 
-	if s.perRequestFilter != nil {
+	if !ignoredRoute && s.perRequestFilter != nil {
 		if err := s.perRequestFilter(ctx, r, auth.Current(ctx)); err != nil {
 			notAuthenticated.Respond(w, r)
 			return
