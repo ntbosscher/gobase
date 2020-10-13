@@ -13,7 +13,8 @@ import (
 func main() {
 	router := res.NewRouter()
 	router.Use(model.AttachTxHandler("/websocket"))
-	httpauth.Setup(router, httpauth.Config{
+
+	authRouter := httpauth.Setup(router, httpauth.Config{
 		CredentialChecker: func(ctx context.Context, credential *httpauth.Credential) (*auth.UserInfo, error) {
 			// db lookup
 			return &auth.UserInfo{
@@ -23,12 +24,28 @@ func main() {
 	})
 
 	router.ReactApp("/", "./react-app/build", "localhost:3000")
-	router.Get("/api/customers", getCustomers)
-	router.Post("/api/customer/create", createCustomer)
+	authRouter.Get("/api/products", auth.Public, getProducts)
+	authRouter.Get("/api/customers", RoleInternal, getCustomers)
+	authRouter.Post("/api/customer/create", RoleInternal, createCustomer)
 
 	server := httpdefaults.Server("8080", router)
 	log.Println("Serving on " + server.Addr)
 	log.Fatal(server.ListenAndServe())
+
+}
+
+const (
+	RoleUser      = 0x1 << iota
+	RoleSupport   = 0x1 << iota
+	RoleSuperUser = 0x1 << iota
+)
+
+const (
+	RoleInternal = RoleSuperUser | RoleSupport
+)
+
+func getProducts(rq *res.Request) res.Responder {
+	return res.Todo()
 }
 
 func getCustomers(rq *res.Request) res.Responder {

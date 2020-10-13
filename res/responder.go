@@ -222,6 +222,10 @@ func NotFound(msg ...string) Responder {
 	}
 }
 
+func Todo() Responder {
+	return WithCodeAndMessage(500, "todo")
+}
+
 func WithCodeAndMessage(code int, message string) Responder {
 	return &responder{
 		status: code,

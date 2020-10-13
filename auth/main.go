@@ -12,8 +12,16 @@ type UserInfo struct {
 	jwt.StandardClaims
 	UserID    int
 	CompanyID int
+	Role      TRole
 	Extra     map[string]interface{}
 }
+
+// TRoles should set only 1 bit to allow for byte wise comparisons
+type TRole int
+
+const (
+	Public TRole = iota
+)
 
 type userKeyType string
 
@@ -33,6 +41,10 @@ func Company(ctx context.Context) int {
 
 func User(ctx context.Context) int {
 	return Current(ctx).UserID
+}
+
+func Role(ctx context.Context) TRole {
+	return Current(ctx).Role
 }
 
 func SetUser(ctx context.Context, user *UserInfo) context.Context {
