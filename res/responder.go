@@ -215,6 +215,20 @@ func UnProcessable() Responder {
 	}
 }
 
+func NotFound(msg ...string) Responder {
+	return &responder{
+		status: http.StatusNotFound,
+		data:   strings.Join(msg, " "),
+	}
+}
+
+func WithCodeAndMessage(code int, message string) Responder {
+	return &responder{
+		status: code,
+		data:   message,
+	}
+}
+
 func NotAuthorized(reason ...string) Responder {
 
 	msg := "not authorized"
