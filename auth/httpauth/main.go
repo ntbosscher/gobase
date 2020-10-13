@@ -56,7 +56,7 @@ type Config struct {
 	LogoutPath string
 
 	// route/url to redirect logout requests to after they've been logged out
-	// default: (no redirect)
+	// default: /
 	LogoutRedirectTo string
 
 	// POST route that will accept register requests
@@ -442,6 +442,10 @@ func logoutHandler(config *Config) res.HandlerFunc2 {
 			Path:   "/",
 		})
 
-		return res.Redirect("/")
+		if config.LogoutRedirectTo == "" {
+			return res.Redirect("/")
+		}
+
+		return res.Redirect(config.LogoutRedirectTo)
 	}
 }
