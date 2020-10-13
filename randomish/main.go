@@ -21,3 +21,7 @@ func randomString(length int, charset string) string {
 func GetAlphaNumericChars(length int) string {
 	return randomString(length, "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 }
+
+func Int(min int, max int) int {
+	return rand.Intn(max-min) + min
+}
