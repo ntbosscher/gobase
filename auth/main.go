@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"github.com/dgrijalva/jwt-go"
+	"math"
 )
 
 type Minutes int
@@ -17,10 +18,11 @@ type UserInfo struct {
 }
 
 // TRoles should set only 1 bit to allow for byte wise comparisons
-type TRole int
+type TRole uint32
 
 const (
-	Public TRole = iota
+	Public  TRole = iota
+	RoleAny TRole = math.MaxUint32
 )
 
 type userKeyType string
