@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"database/sql"
 	sq "github.com/Masterminds/squirrel"
 	"log"
 )
@@ -61,6 +62,10 @@ func SelectContext(ctx context.Context, dest interface{}, qr sq.SelectBuilder) e
 	verboseLog(err, sql, args...)
 
 	return SelectContextString(ctx, dest, sql, args...)
+}
+
+func QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row {
+	return Tx(ctx).QueryRowContext(ctx, query, args)
 }
 
 var Builder = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
