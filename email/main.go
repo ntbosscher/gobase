@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"github.com/mailgun/mailgun-go"
 	"github.com/ntbosscher/gobase/env"
+	"html/template"
 	"log"
 )
 
@@ -24,8 +25,8 @@ type TemplateInput struct {
 	// url or data-url
 	Logo string
 
-	Title string
-	Body  []string
+	Title template.HTML
+	Body  []template.HTML
 }
 
 func SendTemplate(to string, subject string, template *TemplateInput, attachments ...*Attachment) error {

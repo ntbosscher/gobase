@@ -144,7 +144,7 @@ var defaultTemplate = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" 
                                                     <td role="modules-container" style="padding:0px 0px 0px 0px; color:#516775; text-align:left;" bgcolor="#F9F5F2" width="100%" align="left"><table class="module preheader preheader-hide" role="module" data-type="preheader" border="0" cellpadding="0" cellspacing="0" width="100%" style="display: none !important; mso-hide: all; visibility: hidden; opacity: 0; color: transparent; height: 0; width: 0;">
                                                             <tr>
                                                                 <td role="module-content">
-                                                                    <p>{{.Preheader}}</p>
+                                                                    <p>{{.PreHeader}}</p>
                                                                 </td>
                                                             </tr>
                                                         </table>
