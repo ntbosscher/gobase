@@ -60,7 +60,7 @@ type RateLimitConfig struct {
 	Window time.Duration
 }
 
-func (r *Router) Add(method string, path string, input *RouteConfig) {
+func (r *Router) Add(method string, path string, input RouteConfig) {
 
 	config := r.Route(method, path).
 		RequireRole(input.RequireRole)
@@ -70,6 +70,32 @@ func (r *Router) Add(method string, path string, input *RouteConfig) {
 	}
 
 	config.Handler(input.Handler)
+}
+
+func (r *Router) AddPublic(method string, path string, handler res.HandlerFunc2) {
+	r.Route(method, path).RequireRole(auth.Public).Handler(handler)
+}
+
+type RoleRouter struct {
+	role   auth.TRole
+	parent *Router
+}
+
+func (r *RoleRouter) Add(method string, path string, input RouteConfig) {
+	input.RequireRole = r.role
+	r.parent.Add(method, path, input)
+}
+
+func (r *RoleRouter) AddSimple(method string, path string, handler res.HandlerFunc2) {
+	r.parent.Add(method, path, RouteConfig{
+		RequireRole: r.role,
+		Handler:     handler,
+	})
+}
+
+func (r *Router) WithRole(role auth.TRole, callback func(r *RoleRouter)) {
+	router := &RoleRouter{role: role, parent: r}
+	callback(router)
 }
 
 func (r *Router) Post(path string) *Configure {

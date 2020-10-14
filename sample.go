@@ -26,22 +26,22 @@ func main() {
 
 	router.ReactApp("/", "./react-app/build", "localhost:3000")
 
-	// use builder setup
+	router.AddPublic("GET", "/api/products", getProducts)
+	// or use builder setup
 	router.Get("/api/products").IsPublic().Handler(getProducts)
 
-	// use object setup
-	router.Add("GET", "/api/customers", &r.RouteConfig{
-		RequireRole: RoleInternal,
-		Handler:     getProducts,
-	})
-
-	router.Add("POST", "/api/customer/create", &r.RouteConfig{
+	router.Add("POST", "/api/customer/create", r.RouteConfig{
 		RequireRole: RoleInternal,
 		RateLimit: &r.RateLimitConfig{
 			Count:  10,
 			Window: 10 * time.Second,
 		},
 		Handler: getProducts,
+	})
+
+	router.WithRole(RoleInternal, func(r *r.RoleRouter) {
+		r.AddSimple("GET", "/api/admin/dashboard", todo)
+		r.AddSimple("POST", "/api/admin/set-credentials", todo)
 	})
 
 	server := httpdefaults.Server("8080", router)
@@ -61,6 +61,10 @@ const (
 )
 
 func getProducts(rq *res.Request) res.Responder {
+	return res.Todo()
+}
+
+func todo(rq *res.Request) res.Responder {
 	return res.Todo()
 }
 
