@@ -38,14 +38,15 @@ import (
 	"github.com/ntbosscher/gobase/httpdefaults"
 	"github.com/ntbosscher/gobase/model"
 	"github.com/ntbosscher/gobase/res"
+	"github.com/ntbosscher/gobase/res/r"
 	"log"
+	"time"
 )
 
 func main() {
-	router := res.NewRouter()
+	router := r.NewRouter()
 	router.Use(model.AttachTxHandler("/websocket"))
-
-	authRouter := httpauth.Setup(router, httpauth.Config{
+	router.WithAuth(httpauth.Config{
 		CredentialChecker: func(ctx context.Context, credential *httpauth.Credential) (*auth.UserInfo, error) {
 			// db lookup
 			return &auth.UserInfo{
@@ -55,9 +56,24 @@ func main() {
 	})
 
 	router.ReactApp("/", "./react-app/build", "localhost:3000")
-	authRouter.Get("/api/products", auth.Public, getProducts)
-	authRouter.Get("/api/customers", RoleInternal, getCustomers)
-	authRouter.Post("/api/customer/create", RoleInternal, createCustomer)
+
+	// use builder setup
+	router.Get("/api/products").IsPublic().Handler(getProducts)
+
+	// use object setup
+	router.Add("GET", "/api/customers", &r.RouteConfig{
+		RequireRole: RoleInternal,
+		Handler:     getProducts,
+	})
+
+	router.Add("POST", "/api/customer/create", &r.RouteConfig{
+		RequireRole: RoleInternal,
+		RateLimit: &r.RateLimitConfig{
+			Count:  10,
+			Window: 10 * time.Second,
+		},
+		Handler: getProducts,
+	})
 
 	server := httpdefaults.Server("8080", router)
 	log.Println("Serving on " + server.Addr)

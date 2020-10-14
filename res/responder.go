@@ -246,6 +246,10 @@ func NotAuthorized(reason ...string) Responder {
 	}
 }
 
+func TooMayRequests() Responder {
+	return WithCodeAndMessage(http.StatusTooManyRequests, "Too many requests")
+}
+
 func ShowBasicAuthPrompt(message string) Responder {
 	return &freeformResponder{
 		respond: func(w http.ResponseWriter, r *http.Request) {

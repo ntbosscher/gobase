@@ -18,24 +18,24 @@ func (a *AuthRouter) ManuallySetSession(rq *res.Request, user *auth.UserInfo) er
 }
 
 func (a *AuthRouter) Get(path string, role auth.TRole, handler res.HandlerFunc2) {
-	a.next.Get(path, requireRole(a, path, role, handler))
+	a.next.Get(path, a.RequireRole(path, role, handler))
 }
 
 func (a *AuthRouter) Put(path string, role auth.TRole, handler res.HandlerFunc2) {
-	a.next.Put(path, requireRole(a, path, role, handler))
+	a.next.Put(path, a.RequireRole(path, role, handler))
 }
 
 func (a *AuthRouter) Post(path string, role auth.TRole, handler res.HandlerFunc2) {
-	a.next.Post(path, requireRole(a, path, role, handler))
+	a.next.Post(path, a.RequireRole(path, role, handler))
 }
 
 func (a *AuthRouter) Delete(path string, role auth.TRole, handler res.HandlerFunc2) {
-	a.next.Delete(path, requireRole(a, path, role, handler))
+	a.next.Delete(path, a.RequireRole(path, role, handler))
 }
 
-func requireRole(router *AuthRouter, path string, role auth.TRole, next res.HandlerFunc2) res.HandlerFunc2 {
+func (a *AuthRouter) RequireRole(path string, role auth.TRole, next res.HandlerFunc2) res.HandlerFunc2 {
 	if role == auth.Public {
-		router.auth.ignoreRoutes = append(router.auth.ignoreRoutes, path)
+		a.auth.ignoreRoutes = append(a.auth.ignoreRoutes, path)
 		return next
 	}
 
