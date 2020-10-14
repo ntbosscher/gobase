@@ -51,8 +51,6 @@ type RouteConfig struct {
 
 	// default: none
 	RateLimit *RateLimitConfig
-
-	Handler res.HandlerFunc2
 }
 
 type RateLimitConfig struct {
@@ -60,20 +58,28 @@ type RateLimitConfig struct {
 	Window time.Duration
 }
 
-func (r *Router) Add(method string, path string, input RouteConfig) {
+// Add adds a route to the router.
+// This route will be publicly accessible unless otherwise specified in 'config' parameter
+// or through WithRole()
+func (r *Router) Add(method string, path string, handler res.HandlerFunc2, config ...RouteConfig) {
 
-	config := r.Route(method, path).
-		RequireRole(input.RequireRole)
+	var input *RouteConfig
 
-	if input.RateLimit != nil {
-		config = config.RateLimit(input.RateLimit.Count, input.RateLimit.Window)
+	if len(config) == 0 {
+		input = &RouteConfig{}
+	} else if len(config) == 1 {
+		input = &config[0]
+	} else {
+		log.Fatal(".Add() should receive 0 or 1 parameters for 'config'")
 	}
 
-	config.Handler(input.Handler)
-}
+	cfg := r.Route(method, path).RequireRole(input.RequireRole)
 
-func (r *Router) AddPublic(method string, path string, handler res.HandlerFunc2) {
-	r.Route(method, path).RequireRole(auth.Public).Handler(handler)
+	if input.RateLimit != nil {
+		cfg = cfg.RateLimit(input.RateLimit.Count, input.RateLimit.Window)
+	}
+
+	cfg.Handler(handler)
 }
 
 type RoleRouter struct {
@@ -81,16 +87,21 @@ type RoleRouter struct {
 	parent *Router
 }
 
-func (r *RoleRouter) Add(method string, path string, input RouteConfig) {
-	input.RequireRole = r.role
-	r.parent.Add(method, path, input)
-}
+// Add adds a route to the router and requires the specified role in WithRole()
+// ignores config.RequireRole if passed by caller
+func (r *RoleRouter) Add(method string, path string, handler res.HandlerFunc2, config ...RouteConfig) {
+	var input *RouteConfig
 
-func (r *RoleRouter) AddSimple(method string, path string, handler res.HandlerFunc2) {
-	r.parent.Add(method, path, RouteConfig{
-		RequireRole: r.role,
-		Handler:     handler,
-	})
+	if len(config) == 0 {
+		input = &RouteConfig{}
+	} else if len(config) == 1 {
+		input = &config[0]
+	} else {
+		log.Fatal(".Add() should receive 0 or 1 parameters for 'config'")
+	}
+
+	input.RequireRole = r.role
+	r.parent.Add(method, path, handler, *input)
 }
 
 func (r *Router) WithRole(role auth.TRole, callback func(r *RoleRouter)) {
