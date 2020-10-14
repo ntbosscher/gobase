@@ -65,7 +65,7 @@ func SelectContext(ctx context.Context, dest interface{}, qr sq.SelectBuilder) e
 }
 
 func QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row {
-	return Tx(ctx).QueryRowContext(ctx, query, args)
+	return Tx(ctx).QueryRowContext(ctx, query, args...)
 }
 
 var Builder = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
