@@ -32,10 +32,17 @@ func SelectTable(ctx context.Context, query string, args ...interface{}) (*Table
 
 		table.Headers = cols
 
+		types, err := rows.ColumnTypes()
+		if err != nil {
+			return err
+		}
+
 		var columnValues []*stringScanner
 		var interfaceValues []interface{}
-		for range cols {
-			scanner := &stringScanner{}
+		for i := range cols {
+			scanner := &stringScanner{
+				dbType: types[i].DatabaseTypeName(),
+			}
 			columnValues = append(columnValues, scanner)
 			interfaceValues = append(interfaceValues, scanner)
 		}
@@ -61,7 +68,8 @@ func SelectTable(ctx context.Context, query string, args ...interface{}) (*Table
 }
 
 type stringScanner struct {
-	Value string
+	Value  string
+	dbType string
 }
 
 func (s *stringScanner) Scan(src interface{}) error {
@@ -79,6 +87,11 @@ func (s *stringScanner) Scan(src interface{}) error {
 	case bool:
 		s.Value = fmt.Sprint(v)
 	case []byte:
+		if s.dbType == "NUMERIC" {
+			s.Value = string(v)
+			break
+		}
+
 		s.Value = base64.StdEncoding.EncodeToString(v)
 	case string:
 		s.Value = v
