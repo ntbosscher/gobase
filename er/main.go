@@ -66,3 +66,7 @@ func Check(err error) {
 		Err:  err,
 	}))
 }
+
+func Throw(value string) {
+	Check(errors.New(value))
+}
