@@ -24,7 +24,7 @@ func init() {
 // SetErrorResponseLogging determines where to pipe http errors
 // by default errors are sent to /dev/null
 func SetErrorResponseLogging(writer io.Writer) {
-	log.New(writer, "http:", log.Ltime&log.Ldate)
+	errorLogger = log.New(writer, "http:", log.Ltime&log.Ldate)
 }
 
 func jsonRenameKeysToCamelCase(key string) string {
