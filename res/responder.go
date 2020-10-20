@@ -4,6 +4,7 @@ import (
 	jsoniter "github.com/json-iterator/go"
 	"github.com/json-iterator/go/extra"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"reflect"
@@ -13,14 +14,17 @@ import (
 )
 
 var json = jsoniter.ConfigDefault
-var logErrorResponses = false
+var errorLogger *log.Logger
 
 func init() {
 	extra.SetNamingStrategy(jsonRenameKeysToCamelCase)
+	SetErrorResponseLogging(ioutil.Discard)
 }
 
-func SetErrorResponseLogging(enabled bool) {
-	logErrorResponses = enabled
+// SetErrorResponseLogging determines where to pipe http errors
+// by default errors are sent to /dev/null
+func SetErrorResponseLogging(writer io.Writer) {
+	log.New(writer, "http:", log.Ltime&log.Ldate)
 }
 
 func jsonRenameKeysToCamelCase(key string) string {
@@ -62,11 +66,9 @@ func (resp *responder) Respond(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.status)
 
-	if logErrorResponses {
-		if resp.status >= 400 {
-			js, _ := json.MarshalIndent(resp.data, "", "\t")
-			log.Printf("request failed: %s %s\n%s", r.Method, r.URL, string(js))
-		}
+	if resp.status >= 400 {
+		js, _ := json.MarshalIndent(resp.data, "", "\t")
+		errorLogger.Printf("request failed: %s %s\n%s", r.Method, r.URL, string(js))
 	}
 
 	if err := json.NewEncoder(w).Encode(resp.data); err != nil {

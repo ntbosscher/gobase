@@ -41,8 +41,14 @@ import (
 	"github.com/ntbosscher/gobase/res"
 	"github.com/ntbosscher/gobase/res/r"
 	"log"
+	"os"
 	"time"
 )
+
+func init() {
+    // enable error logging
+	res.SetErrorResponseLogging(os.Stdout)
+}
 
 func main() {
 	router := r.NewRouter()
