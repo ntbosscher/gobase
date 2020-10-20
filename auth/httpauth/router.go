@@ -40,7 +40,7 @@ func (a *AuthRouter) RequireRole(path string, role auth.TRole, next res.HandlerF
 	}
 
 	return func(rq *res.Request) res.Responder {
-		if auth.Role(rq.Context())&role != 0 {
+		if auth.HasRole(rq.Context(), role) {
 			return next(rq)
 		}
 

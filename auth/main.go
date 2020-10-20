@@ -49,6 +49,10 @@ func Role(ctx context.Context) TRole {
 	return Current(ctx).Role
 }
 
+func HasRole(ctx context.Context, role TRole) bool {
+	return (Role(ctx) & role) != 0
+}
+
 func SetUser(ctx context.Context, user *UserInfo) context.Context {
 	return context.WithValue(ctx, userKey, user)
 }
