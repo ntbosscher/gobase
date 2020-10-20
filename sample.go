@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/ntbosscher/gobase/auth"
 	"github.com/ntbosscher/gobase/auth/httpauth"
+	"github.com/ntbosscher/gobase/er"
 	"github.com/ntbosscher/gobase/httpdefaults"
 	"github.com/ntbosscher/gobase/model"
 	"github.com/ntbosscher/gobase/res"
@@ -77,10 +78,8 @@ func getCustomers(rq *res.Request) res.Responder {
 	// will be auto committed if we return a non-error response
 	//
 	// get current user's company id from context
-	if err := model.GetContext(rq.Context(), customer, "select * from customer where company = $1 limit $2", auth.Company(rq.Context()), limit); err != nil {
-		// return http 500 with json encoded {error: "string"} value
-		return res.AppError(err.Error())
-	}
+	err := model.GetContext(rq.Context(), customer, "select * from customer where company = $1 limit $2", auth.Company(rq.Context()), limit)
+	er.Check(err) // return http 500 with json encoded {error: "string"} value
 
 	// return http 200 with customer json encoded with camelCase keys
 	return res.Ok(customer)
@@ -91,24 +90,18 @@ func createCustomer(rq *res.Request) res.Responder {
 	customer := &Customer{}
 
 	// parse customer from request body
-	if err := rq.ParseJSON(customer); err != nil {
-		// return http 400 with json encoded {error: "string"} value
-		return res.BadRequest(err.Error())
-	}
+	err := rq.ParseJSON(customer)
+	er.CheckForDecode(err) // return http 400 with json encoded {error: "string"} value
 
 	// db transaction flows from model.AttachTxHandler through rq.Context() and
 	// will be auto committed if we return a non-error response
 	//
 	// get current user's company id from context
 	id, err := model.Insert(rq.Context(), "insert into customer set name = $1, company = $2 ", customer.Name, auth.Company(rq.Context()))
-	if err != nil {
-		// return http 500 with json encoded {error: "string"} value
-		return res.AppError(err.Error())
-	}
+	er.Check(err) // return http 500 with json encoded {error: "string"} value
 
-	if err = model.GetContext(rq.Context(), customer, `select * from customer where id = $1`, id); err != nil {
-		return res.AppError(err.Error())
-	}
+	err = model.GetContext(rq.Context(), customer, `select * from customer where id = $1`, id)
+	er.Check(err) // return http 500 with json encoded {error: "string"} value
 
 	// return http 200 with customer json encoded with camelCase keys
 	return res.Ok(customer)

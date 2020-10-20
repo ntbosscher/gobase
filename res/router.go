@@ -3,6 +3,7 @@ package res
 import (
 	"context"
 	"github.com/gorilla/mux"
+	"github.com/ntbosscher/gobase/er"
 	"mime/multipart"
 	"net/http"
 	"strconv"
@@ -96,6 +97,15 @@ func (f *funcServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func WrapHTTPFunc(handler HandlerFunc2) http.HandlerFunc {
 	return func(wr http.ResponseWriter, req *http.Request) {
+		defer er.HandleErrors(func(input *er.HandlerInput) {
+			res := &responder{
+				status: http.StatusOK,
+				data:   errorData(input.Message, input.StackTrace),
+			}
+
+			res.Respond(wr, req)
+		})
+
 		res := handler(NewRequest(wr, req))
 		res.Respond(wr, req)
 	}

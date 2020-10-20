@@ -16,7 +16,7 @@ require (
 	github.com/lib/pq v1.5.2
 	github.com/mailgun/mailgun-go v2.0.0+incompatible // indirect
 	github.com/markbates/goth v1.64.2
-	github.com/pkg/errors v0.9.1 // indirect
+	github.com/pkg/errors v0.9.1
 	golang.org/x/crypto v0.0.0-20200510223506-06a226fb4e37
 	google.golang.org/appengine v1.6.6 // indirect
 )

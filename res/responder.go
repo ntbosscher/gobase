@@ -13,9 +13,14 @@ import (
 )
 
 var json = jsoniter.ConfigDefault
+var logErrorResponses = false
 
 func init() {
 	extra.SetNamingStrategy(jsonRenameKeysToCamelCase)
+}
+
+func SetErrorResponseLogging(enabled bool) {
+	logErrorResponses = enabled
 }
 
 func jsonRenameKeysToCamelCase(key string) string {
@@ -56,6 +61,13 @@ func (resp *responder) Respond(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.status)
+
+	if logErrorResponses {
+		if resp.status >= 400 {
+			js, _ := json.MarshalIndent(resp.data, "", "\t")
+			log.Printf("request failed: %s %s\n%s", r.Method, r.URL, string(js))
+		}
+	}
 
 	if err := json.NewEncoder(w).Encode(resp.data); err != nil {
 		log.Println(err)
@@ -175,7 +187,7 @@ func List(list interface{}) Responder {
 func AppError(str string) Responder {
 	return &responder{
 		status: http.StatusInternalServerError,
-		data:   errorData(str),
+		data:   errorData(str, ""),
 	}
 }
 
@@ -189,7 +201,7 @@ func Accepted(status int, data interface{}) Responder {
 func BadRequest(str string) Responder {
 	return &responder{
 		status: http.StatusBadRequest,
-		data:   errorData(str),
+		data:   errorData(str, ""),
 	}
 }
 
@@ -204,14 +216,14 @@ func Redirect(url string) Responder {
 func InternalServerError(str string) Responder {
 	return &responder{
 		status: http.StatusInternalServerError,
-		data:   errorData(str),
+		data:   errorData(str, ""),
 	}
 }
 
 func UnProcessable() Responder {
 	return &responder{
 		status: http.StatusUnprocessableEntity,
-		data:   errorData("unable to process that request"),
+		data:   errorData("unable to process that request", ""),
 	}
 }
 
@@ -242,7 +254,7 @@ func NotAuthorized(reason ...string) Responder {
 
 	return &responder{
 		status: http.StatusUnauthorized,
-		data:   errorData("not authorized"),
+		data:   errorData("not authorized", ""),
 	}
 }
 
@@ -260,8 +272,9 @@ func ShowBasicAuthPrompt(message string) Responder {
 	}
 }
 
-func errorData(str string) interface{} {
+func errorData(str string, stackTrace string) interface{} {
 	return map[string]interface{}{
-		"error": str,
+		"error":      str,
+		"stackTrace": stackTrace,
 	}
 }
