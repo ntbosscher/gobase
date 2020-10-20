@@ -24,7 +24,7 @@ func init() {
 // SetErrorResponseLogging determines where to pipe http errors
 // by default errors are sent to /dev/null
 func SetErrorResponseLogging(writer io.Writer) {
-	errorLogger = log.New(writer, "http:", log.Ltime&log.Ldate)
+	errorLogger = log.New(writer, "http: ", log.Ltime&log.Ldate)
 }
 
 func jsonRenameKeysToCamelCase(key string) string {
@@ -69,11 +69,13 @@ func (resp *responder) Respond(w http.ResponseWriter, r *http.Request) {
 	if resp.status >= 400 {
 		js, _ := json.MarshalIndent(resp.data, "", "   ")
 		jsStr := string(js)
-		if jsStr != "" {
+		if jsStr != `""` {
 			jsStr = "\n" + jsStr
+		} else {
+			jsStr = ""
 		}
 
-		errorLogger.Printf("request failed: %s %s%s", r.Method, r.URL, jsStr)
+		errorLogger.Printf("request failed: %s %s -> %d%s", r.Method, r.URL, resp.status, jsStr)
 	}
 
 	if err := json.NewEncoder(w).Encode(resp.data); err != nil {
