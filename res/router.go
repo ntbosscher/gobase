@@ -99,7 +99,7 @@ func WrapHTTPFunc(handler HandlerFunc2) http.HandlerFunc {
 	return func(wr http.ResponseWriter, req *http.Request) {
 		defer er.HandleErrors(func(input *er.HandlerInput) {
 			res := &responder{
-				status: http.StatusOK,
+				status: input.SuggestedHttpCode,
 				data:   errorData(input.Message, input.StackTrace),
 			}
 

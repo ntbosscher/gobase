@@ -68,7 +68,12 @@ func (resp *responder) Respond(w http.ResponseWriter, r *http.Request) {
 
 	if resp.status >= 400 {
 		js, _ := json.MarshalIndent(resp.data, "", "   ")
-		errorLogger.Printf("request failed: %s %s\n%s", r.Method, r.URL, string(js))
+		jsStr := string(js)
+		if jsStr != "" {
+			jsStr = "\n" + jsStr
+		}
+
+		errorLogger.Printf("request failed: %s %s%s", r.Method, r.URL, jsStr)
 	}
 
 	if err := json.NewEncoder(w).Encode(resp.data); err != nil {
