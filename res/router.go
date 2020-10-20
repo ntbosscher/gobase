@@ -252,3 +252,8 @@ func (r *Request) GetCookieValue(name string) string {
 func (r *Request) ParseJSON(result interface{}) error {
 	return json.NewDecoder(r.req.Body).Decode(result)
 }
+
+func (r *Request) MustParseJSON(result interface{}) {
+	err := r.ParseJSON(result)
+	er.CheckForDecode(err)
+}
