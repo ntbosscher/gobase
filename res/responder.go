@@ -67,7 +67,7 @@ func (resp *responder) Respond(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(resp.status)
 
 	if resp.status >= 400 {
-		js, _ := json.MarshalIndent(resp.data, "", "\t")
+		js, _ := json.MarshalIndent(resp.data, "", "   ")
 		errorLogger.Printf("request failed: %s %s\n%s", r.Method, r.URL, string(js))
 	}
 
