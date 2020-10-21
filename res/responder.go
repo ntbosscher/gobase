@@ -120,7 +120,7 @@ func (resp *freeformResponder) Respond(w http.ResponseWriter, r *http.Request) {
 func Download(name string, data io.ReadSeeker) Responder {
 	return &freeformResponder{
 		respond: func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Add("Content-Disposition", "attachment; filename="+sanitizeDispositionName(name)+"")
+			w.Header().Add("Content-Disposition", "attachment; filename="+SanitizeDispositionName(name)+"")
 			http.ServeContent(w, r, name, time.Now(), data)
 		},
 	}
@@ -128,14 +128,14 @@ func Download(name string, data io.ReadSeeker) Responder {
 
 // there's a chrome bug that doesn't handle commas in Content-Disposition filenames
 // https://answers.nuxeo.com/general/q/d8348e07fe5e441183bae07dfda00e40/Comma-in-file-name-cause-problem-in-Chrome-Browser
-func sanitizeDispositionName(fileName string) string {
+func SanitizeDispositionName(fileName string) string {
 	return strings.Replace(fileName, ",", "", -1)
 }
 
 func Display(name string, data io.ReadSeeker) Responder {
 	return &freeformResponder{
 		respond: func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Add("Content-Disposition", "inline; filename="+sanitizeDispositionName(name)+"")
+			w.Header().Add("Content-Disposition", "inline; filename="+SanitizeDispositionName(name)+"")
 			http.ServeContent(w, r, name, time.Now(), data)
 		},
 	}
