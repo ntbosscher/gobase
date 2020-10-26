@@ -50,6 +50,10 @@ func Role(ctx context.Context) TRole {
 }
 
 func HasRole(ctx context.Context, role TRole) bool {
+	if !IsAuthenticated(ctx) {
+		return role&Public != 0
+	}
+
 	return (Role(ctx) & role) != 0
 }
 
