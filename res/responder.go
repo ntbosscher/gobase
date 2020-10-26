@@ -15,16 +15,26 @@ import (
 
 var json = jsoniter.ConfigDefault
 var errorLogger *log.Logger
+var ignoreErrorLog ErrorLogFilterer
+
+type ErrorLogFilterer func(responseCode int, responseBody interface{}, request *http.Request) bool
 
 func init() {
 	extra.SetNamingStrategy(jsonRenameKeysToCamelCase)
 	SetErrorResponseLogging(ioutil.Discard)
+	IgnoreErrorLogFor(func(responseCode int, responseBody interface{}, request *http.Request) bool {
+		return false // log all errors
+	})
 }
 
 // SetErrorResponseLogging determines where to pipe http errors
 // by default errors are sent to /dev/null
 func SetErrorResponseLogging(writer io.Writer) {
 	errorLogger = log.New(writer, "http: ", log.Ltime&log.Ldate)
+}
+
+func IgnoreErrorLogFor(callback ErrorLogFilterer) {
+	ignoreErrorLog = callback
 }
 
 func jsonRenameKeysToCamelCase(key string) string {
@@ -67,15 +77,18 @@ func (resp *responder) Respond(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(resp.status)
 
 	if resp.status >= 400 {
-		js, _ := json.MarshalIndent(resp.data, "", "   ")
-		jsStr := string(js)
-		if jsStr != `""` {
-			jsStr = "\n" + jsStr
-		} else {
-			jsStr = ""
-		}
+		if !ignoreErrorLog(resp.status, resp.data, r) {
 
-		errorLogger.Printf("request failed: %s %s -> %d%s", r.Method, r.URL, resp.status, jsStr)
+			js, _ := json.MarshalIndent(resp.data, "", "   ")
+			jsStr := string(js)
+			if jsStr != `""` {
+				jsStr = "\n" + jsStr
+			} else {
+				jsStr = ""
+			}
+
+			errorLogger.Printf("request failed: %s %s -> %d%s", r.Method, r.URL, resp.status, jsStr)
+		}
 	}
 
 	if err := json.NewEncoder(w).Encode(resp.data); err != nil {
