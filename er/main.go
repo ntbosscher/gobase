@@ -21,7 +21,16 @@ func HandleErrors(callback func(input *HandlerInput)) {
 		return
 	}
 
-	cause := errors.Cause(err).(*HttpError)
+	cause, ok := errors.Cause(err).(*HttpError)
+	if !ok {
+		callback(&HandlerInput{
+			Message:           err.Error(),
+			SuggestedHttpCode: 500,
+			StackTrace:        fmt.Sprintf("%+v", err),
+		})
+
+		return
+	}
 
 	callback(&HandlerInput{
 		Message:           cause.Error(),
