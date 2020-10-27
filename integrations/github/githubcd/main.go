@@ -9,9 +9,13 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 )
+
+var Verbose = false
+var logger = log.New(os.Stdout, "gobase-githubcd: ", log.Ldate|log.Ltime)
 
 type Handler struct {
 	secret         string
@@ -48,18 +52,39 @@ func (h *Handler) validateSignature(r *http.Request) error {
 }
 
 func (h *Handler) doUpdate() error {
+
+	if Verbose {
+		logger.Println("git", "pull", "-f")
+	}
+
 	cmd := exec.Command("git", "pull", "-f")
-	if output, err := cmd.CombinedOutput(); err != nil {
+	output, err := cmd.CombinedOutput()
+
+	if err != nil {
 		log.Println(string(output))
 		return err
 	}
 
+	if Verbose {
+		logger.Println(string(output))
+	}
+
 	// run async in case postPullScript triggers a process re-start
 	go func() {
-		cmd = exec.Command(h.postPullScript)
-		if output, err := cmd.CombinedOutput(); err != nil {
+
+		if Verbose {
+			logger.Println(h.postPullScript)
+		}
+
+		cmd := exec.Command(h.postPullScript)
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
 			log.Println("github continuous deployment post-pull script failed")
 			log.Println(string(output))
+		} else if Verbose {
+			logger.Println(h.postPullScript)
+			logger.Println(string(output))
 		}
 	}()
 
