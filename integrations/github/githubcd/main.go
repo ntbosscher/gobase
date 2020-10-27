@@ -49,17 +49,17 @@ func (h *Handler) validateSignature(r *http.Request) error {
 
 func (h *Handler) doUpdate() error {
 	cmd := exec.Command("git", "pull", "-f")
-	if err := cmd.Run(); err != nil {
-		log.Println(cmd.CombinedOutput())
+	if output, err := cmd.CombinedOutput(); err != nil {
+		log.Println(string(output))
 		return err
 	}
 
 	// run async in case postPullScript triggers a process re-start
 	go func() {
 		cmd = exec.Command(h.postPullScript)
-		if err := cmd.Run(); err != nil {
+		if output, err := cmd.CombinedOutput(); err != nil {
 			log.Println("github continuous deployment post-pull script failed")
-			log.Println(cmd.CombinedOutput())
+			log.Println(string(output))
 		}
 	}()
 
