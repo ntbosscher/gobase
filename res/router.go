@@ -4,6 +4,8 @@ import (
 	"context"
 	"github.com/gorilla/mux"
 	"github.com/ntbosscher/gobase/er"
+	"github.com/ntbosscher/gobase/integrations/github/githubcd"
+	"github.com/ntbosscher/gobase/strs"
 	"mime/multipart"
 	"net/http"
 	"strconv"
@@ -40,6 +42,25 @@ func (rt *Router) Post(path string, handler HandlerFunc2) {
 
 func (rt *Router) Delete(path string, handler HandlerFunc2) {
 	rt.Route("DELETE", path, handler)
+}
+
+type GithubCDInput struct {
+
+	// default: /api/github-deploy
+	Path string
+
+	// required
+	Secret string
+
+	// required: script to run after the git repo is updated
+	PostPullScript string
+}
+
+func (rt *Router) GithubContinuousDeployment(input GithubCDInput) {
+	path := strs.Coalesce(input.Path, "/api/github-deploy")
+	handler := githubcd.New(input.Secret, input.PostPullScript)
+
+	rt.next.Methods("POST").Path(path).Handler(handler)
 }
 
 func (rt *Router) NotFoundHandler(handler http.Handler) {

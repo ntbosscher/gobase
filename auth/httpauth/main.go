@@ -8,6 +8,7 @@ import (
 	"github.com/ntbosscher/gobase/auth/httpauth/oauth"
 	"github.com/ntbosscher/gobase/env"
 	"github.com/ntbosscher/gobase/res"
+	"github.com/ntbosscher/gobase/strs"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -98,24 +99,24 @@ type Config struct {
 type PerRequestFilter func(ctx context.Context, r *http.Request, user *auth.UserInfo) error
 
 func (c Config) getRefreshTokenCookieName() string {
-	return useDefault(c.RefreshTokenCookieName, "refresh-token")
+	return strs.Coalesce(c.RefreshTokenCookieName, "refresh-token")
 }
 
 func (c Config) getAccessTokenCookieName() string {
-	return useDefault(c.AccessTokenCookieName, "token")
+	return strs.Coalesce(c.AccessTokenCookieName, "token")
 }
 
 func Setup(router *res.Router, config Config) *AuthRouter {
-	loginPath := useDefault(config.LoginPath, defaultLoginEndpoint)
+	loginPath := strs.Coalesce(config.LoginPath, defaultLoginEndpoint)
 	router.Post(loginPath, loginHandler(&config))
-	logoutPath := useDefault(config.LogoutPath, defaultLogoutEndpoint)
+	logoutPath := strs.Coalesce(config.LogoutPath, defaultLogoutEndpoint)
 	router.Post(logoutPath, logoutHandler(&config))
 	router.Get(logoutPath, logoutHandler(&config))
-	refreshPath := useDefault(config.RefreshPath, defaultRefreshEndpoint)
+	refreshPath := strs.Coalesce(config.RefreshPath, defaultRefreshEndpoint)
 	router.Post(refreshPath, refreshHandler(&config))
 
 	if config.RegisterHandler != nil {
-		router.Post(useDefault(config.RegisterPath, defaultRegisterEndpoint), registerHandler(&config))
+		router.Post(strs.Coalesce(config.RegisterPath, defaultRegisterEndpoint), registerHandler(&config))
 	}
 
 	config.IgnoreRoutes = append(config.IgnoreRoutes, loginPath, logoutPath, refreshPath)
@@ -159,14 +160,6 @@ func middleware(config Config) *server {
 		ignoreRoutes:             config.IgnoreRoutes,
 		authHandler:              authHandler(&config),
 	}
-}
-
-func useDefault(str string, defaultStr string) string {
-	if str == "" {
-		return defaultStr
-	}
-
-	return str
 }
 
 type server struct {
