@@ -12,6 +12,10 @@ type AuthRouter struct {
 	next   *res.Router
 }
 
+func (a *AuthRouter) AddIgnoreRoute(path string) {
+	a.auth.ignoreRoutes = append(a.auth.ignoreRoutes, path)
+}
+
 func (a *AuthRouter) ManuallySetSession(rq *res.Request, user *auth.UserInfo) error {
 	_, _, err := setupSession(rq, user, a.config)
 	return err

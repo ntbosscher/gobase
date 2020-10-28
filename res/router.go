@@ -56,8 +56,10 @@ type GithubCDInput struct {
 	PostPullScript string
 }
 
+const DefaultGithubCdPath = "/api/github-deploy"
+
 func (rt *Router) GithubContinuousDeployment(input GithubCDInput) {
-	path := strs.Coalesce(input.Path, "/api/github-deploy")
+	path := strs.Coalesce(input.Path, DefaultGithubCdPath)
 	handler := githubcd.New(input.Secret, input.PostPullScript)
 
 	rt.next.Methods("POST").Path(path).Handler(handler)

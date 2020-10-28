@@ -5,6 +5,7 @@ import (
 	"github.com/ntbosscher/gobase/auth/httpauth"
 	"github.com/ntbosscher/gobase/ratelimit"
 	"github.com/ntbosscher/gobase/res"
+	"github.com/ntbosscher/gobase/strs"
 	"log"
 	"time"
 )
@@ -80,6 +81,16 @@ func (r *Router) Add(method string, path string, handler res.HandlerFunc2, confi
 	}
 
 	cfg.Handler(handler)
+}
+
+func (r *Router) ignoreAuthForRoute(path string) {
+	r.auth.AddIgnoreRoute(path)
+}
+
+func (r *Router) GithubContinuousDeployment(input res.GithubCDInput) {
+	input.Path = strs.Coalesce(input.Path, res.DefaultGithubCdPath)
+	r.ignoreAuthForRoute(input.Path)
+	r.Router.GithubContinuousDeployment(input)
 }
 
 type RoleRouter struct {
