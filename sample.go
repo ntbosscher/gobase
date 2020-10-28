@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/ntbosscher/gobase/auth"
 	"github.com/ntbosscher/gobase/auth/httpauth"
+	"github.com/ntbosscher/gobase/env"
 	"github.com/ntbosscher/gobase/er"
 	"github.com/ntbosscher/gobase/httpdefaults"
 	"github.com/ntbosscher/gobase/model"
@@ -31,23 +32,36 @@ func main() {
 		},
 	})
 
-	router.ReactApp("/", "./react-app/build", "localhost:3000")
-
-	router.Add("GET", "/api/products", getProducts)
-	// or use builder setup
-	router.Get("/api/products").IsPublic().Handler(getProducts)
-
-	router.Add("POST", "/api/customer/create", getProducts, r.RouteConfig{
-		RequireRole: RoleInternal,
-		RateLimit: &r.RateLimitConfig{
-			Count:  10,
-			Window: 10 * time.Second,
-		},
+	// receive a github post-push hook and auto-update ourselves
+	router.GithubContinuousDeployment(res.GithubCDInput{
+		Path:           "/api/github-auto-deploy",
+		Secret:         env.Require("GITHUB_DEPLOY_KEY"),
+		PostPullScript: "./rebuild-and-migrate.sh",
 	})
 
-	router.WithRole(RoleInternal, func(r *r.RoleRouter) {
-		r.Add("GET", "/api/admin/dashboard", todo)
-		r.Add("POST", "/api/admin/set-credentials", todo)
+	router.ReactApp("/", "./react-app/build", "localhost:3000")
+
+	// public routes
+	router.Add("GET", "/api/products", getProducts)
+
+	// internal routes
+	router.WithRole(RoleInternal, func(rt *r.RoleRouter) {
+
+		// route based on X-APIVersion header
+		rt.Versioned("POST", "/api/customer/create",
+			r.DefaultVersion(todo),
+			r.Version("1", todo),
+		)
+
+		// with rate limiting
+		rt.Add("GET", "/api/admin/reports", todo, r.RouteConfig{
+			RateLimit: &r.RateLimitConfig{
+				Count:  10,
+				Window: 10 * time.Second,
+			},
+		})
+
+		rt.Add("POST", "/api/admin/set-credentials", todo)
 	})
 
 	server := httpdefaults.Server("8080", router)

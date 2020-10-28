@@ -93,6 +93,10 @@ func (r *Router) GithubContinuousDeployment(input res.GithubCDInput) {
 	r.Router.GithubContinuousDeployment(input)
 }
 
+func (r *Router) PerVersion() {
+
+}
+
 type RoleRouter struct {
 	role   auth.TRole
 	parent *Router
@@ -115,21 +119,77 @@ func (r *RoleRouter) Add(method string, path string, handler res.HandlerFunc2, c
 	r.parent.Add(method, path, handler, *input)
 }
 
+func (r *RoleRouter) Versioned(method string, path string, versionedHandlers ...VersionedHandler) {
+	r.parent.VersionedWithConfig(method, path, RouteConfig{
+		RequireRole: r.role,
+	}, versionedHandlers...)
+}
+
+func (r *RoleRouter) VersionedWithConfig(method string, path string, config RouteConfig, versionedHandlers ...VersionedHandler) {
+	config.RequireRole = r.role
+	r.parent.VersionedWithConfig(method, path, config, versionedHandlers...)
+}
+
+type VersionedHandler struct {
+	isDefault bool
+	version   string
+	value     res.HandlerFunc2
+}
+
+func (r *Router) VersionedWithConfig(method string, path string, config RouteConfig, versionedHandlers ...VersionedHandler) {
+
+	uniq := map[string]bool{}
+	var defaultHandler *VersionedHandler
+
+	for _, handler := range versionedHandlers {
+		if uniq[handler.version] {
+			log.Panicf("Version '%s' already exists for route %s %s", handler.version, method, path)
+		}
+
+		uniq[handler.version] = true
+		if handler.isDefault {
+			defaultHandler = &handler
+		}
+	}
+
+	r.Add(method, path, func(rq *res.Request) res.Responder {
+		version := rq.APIVersion()
+		for _, handler := range versionedHandlers {
+			if handler.version == version {
+				return handler.value(rq)
+			}
+		}
+
+		if defaultHandler != nil {
+			return defaultHandler.value(rq)
+		}
+
+		return res.NotFound("No handler for that api-version")
+	}, config)
+}
+
+func (r *Router) Versioned(method string, path string, versionedHandlers ...VersionedHandler) {
+	r.VersionedWithConfig(method, path, RouteConfig{RequireRole: auth.Public}, versionedHandlers...)
+}
+
+func DefaultVersion(handler res.HandlerFunc2) VersionedHandler {
+	return VersionedHandler{
+		version:   "",
+		isDefault: true,
+		value:     handler,
+	}
+}
+
+func Version(n string, handler res.HandlerFunc2) VersionedHandler {
+	return VersionedHandler{
+		version: n,
+		value:   handler,
+	}
+}
+
 func (r *Router) WithRole(role auth.TRole, callback func(r *RoleRouter)) {
 	router := &RoleRouter{role: role, parent: r}
 	callback(router)
-}
-
-func (r *Router) Post(path string) *Configure {
-	return r.Route("POST", path)
-}
-
-func (r *Router) Put(path string) *Configure {
-	return r.Route("PUT", path)
-}
-
-func (r *Router) Delete(path string) *Configure {
-	return r.Route("DELETE", path)
 }
 
 func (r *Router) Route(method string, path string) *Configure {
