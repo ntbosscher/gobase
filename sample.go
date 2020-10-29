@@ -84,6 +84,47 @@ func getProducts(rq *res.Request) res.Responder {
 	return res.Todo()
 }
 
+type Customer struct {
+	ID        int
+	FirstName string
+	Email     string
+	Store     int
+}
+
+func createCustomer(rq *res.Request) res.Responder {
+
+	// define the request structure, could have used
+	// the Customer struct here instead.
+	input := &struct {
+		FirstName string
+		Email     string
+		Store     int
+	}{}
+
+	// parse request body, if fails will return a 400 with error details
+	rq.MustParseJSON(input)
+
+	// create customer using if/err flow
+	id := 0
+	err := model.QueryRowContext(rq.Context(), `insert into customer 
+		(first_name, email, store) 
+		values ($1, $2, $3) returning id`,
+		input.FirstName, input.Email, input.Store).Scan(&id)
+
+	if model.IsDuplicateKeyError(err) {
+		return res.AppError("That email is already in the system")
+	}
+
+	// fetch customer
+	// db transaction flows from model.AttachTxHandler through rq.Context() and
+	// will be auto committed if we return a non-error response
+	customer := &Customer{}
+	model.MustGetContext(rq.Context(), customer, `select * from customer where id = $1`, id)
+
+	// returns json with http-status 200 -> { id: 1, firstName: "", email: "", store: 0 }
+	return res.Ok(customer)
+}
+
 func todo(rq *res.Request) res.Responder {
 	return res.Todo()
 }
@@ -103,30 +144,4 @@ func getCustomers(rq *res.Request) res.Responder {
 
 	// return http 200 with customer json encoded with camelCase keys
 	return res.Ok(customer)
-}
-
-func createCustomer(rq *res.Request) res.Responder {
-
-	customer := &Customer{}
-
-	// parse customer from request body
-	err := rq.ParseJSON(customer)
-	er.CheckForDecode(err) // return http 400 with json encoded {error: "string"} value
-
-	// db transaction flows from model.AttachTxHandler through rq.Context() and
-	// will be auto committed if we return a non-error response
-	//
-	// get current user's company id from context
-	id, err := model.Insert(rq.Context(), "insert into customer set name = $1, company = $2 ", customer.Name, auth.Company(rq.Context()))
-	er.Check(err) // return http 500 with json encoded {error: "string"} value
-
-	err = model.GetContext(rq.Context(), customer, `select * from customer where id = $1`, id)
-	er.Check(err) // return http 500 with json encoded {error: "string"} value
-
-	// return http 200 with customer json encoded with camelCase keys
-	return res.Ok(customer)
-}
-
-type Customer struct {
-	Name string
 }

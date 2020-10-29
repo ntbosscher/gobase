@@ -26,7 +26,7 @@ CONNECTION_STRING=
 If you're using httpauth, create a `.jwtkey` file. 
 You might find [jwtgen-util](./auth/httpauth/jwtgen) to be helpful.
 
-## Sample
+## Sample Router Config
 
 ```golang
 func main() {
@@ -78,5 +78,50 @@ func main() {
 	server := httpdefaults.Server("8080", router)
 	log.Println("Serving on " + server.Addr)
 	log.Fatal(server.ListenAndServe())
+}
+```
+
+## Sample Handler
+
+```golang
+type Customer struct {
+	ID        int
+	FirstName string
+	Email     string
+	Store     int
+}
+
+func createCustomer(rq *res.Request) res.Responder {
+
+	// define the request structure, could have used
+	// the Customer struct here instead.
+	input := &struct {
+		FirstName string
+		Email     string
+		Store     int
+	}{}
+
+	// parse request body, if fails will return a 400 with error details
+	rq.MustParseJSON(input)
+
+	// create customer using if/err flow
+	id := 0
+	err := model.QueryRowContext(rq.Context(), `insert into customer 
+		(first_name, email, store) 
+		values ($1, $2, $3) returning id`,
+		input.FirstName, input.Email, input.Store).Scan(&id)
+
+	if model.IsDuplicateKeyError(err) {
+		return res.AppError("That email is already in the system")
+	}
+
+	// fetch customer
+	// db transaction flows from model.AttachTxHandler through rq.Context() and
+	// will be auto committed if we return a non-error response
+	customer := &Customer{}
+	model.MustGetContext(rq.Context(), customer, `select * from customer where id = $1`, id)
+
+	// returns json with http-status 200 -> { id: 1, firstName: "", email: "", store: 0 }
+	return res.Ok(customer)
 }
 ```
