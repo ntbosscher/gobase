@@ -84,44 +84,48 @@ func getProducts(rq *res.Request) res.Responder {
 	return res.Todo()
 }
 
-type Customer struct {
+type User struct {
 	ID        int
 	FirstName string
 	Email     string
-	Store     int
+	CreatedBy int
+	Company   int `json:"-"`
 }
 
-func createCustomer(rq *res.Request) res.Responder {
+func createUserHandler(rq *res.Request) res.Responder {
 
 	// define the request structure, could have used
-	// the Customer struct here instead.
+	// the User struct here instead.
 	input := &struct {
 		FirstName string
 		Email     string
-		Store     int
 	}{}
 
 	// parse request body, if fails will return a 400 with error details
 	rq.MustParseJSON(input)
 
-	// create customer using if/err flow
+	// use the auth-context to get which company/tenant (for multi-tenant systems)
+	company := auth.Company(rq.Context())
+	currentUser := auth.User(rq.Context())
+
+	// create user using if/err flow
 	id := 0
-	err := model.QueryRowContext(rq.Context(), `insert into customer 
-		(first_name, email, store) 
-		values ($1, $2, $3) returning id`,
-		input.FirstName, input.Email, input.Store).Scan(&id)
+	err := model.QueryRowContext(rq.Context(), `insert into user 
+		(first_name, email, company, created_by) 
+		values ($1, $2, $3, $4) returning id`,
+		input.FirstName, input.Email, company, currentUser).Scan(&id)
 
 	if model.IsDuplicateKeyError(err) {
 		return res.AppError("That email is already in the system")
 	}
 
-	// fetch customer
+	// fetch user
 	// db transaction flows from model.AttachTxHandler through rq.Context() and
 	// will be auto committed if we return a non-error response
-	customer := &Customer{}
-	model.MustGetContext(rq.Context(), customer, `select * from customer where id = $1`, id)
+	customer := &User{}
+	model.MustGetContext(rq.Context(), customer, `select * from user where id = $1`, id)
 
-	// returns json with http-status 200 -> { id: 1, firstName: "", email: "", store: 0 }
+	// returns json with http-status 200 -> { id: 1, firstName: "", email: "", createdBy: 1 }
 	return res.Ok(customer)
 }
 
