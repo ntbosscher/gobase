@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"github.com/ntbosscher/gobase/auth"
 	"github.com/ntbosscher/gobase/auth/httpauth"
 	"github.com/ntbosscher/gobase/env"
@@ -21,14 +20,41 @@ func init() {
 }
 
 func main() {
+
 	router := r.NewRouter()
+
+	// setup database transactions
 	router.Use(model.AttachTxHandler("/websocket"))
+
+	// setup auth
 	router.WithAuth(httpauth.Config{
-		CredentialChecker: func(ctx context.Context, credential *httpauth.Credential) (*auth.UserInfo, error) {
-			// db lookup
-			return &auth.UserInfo{
-				UserID: 103,
-			}, nil
+		// .. setup jwt-based authentication
+		// .. oauth setup (optional)
+	})
+
+	// serve react-app
+	router.ReactApp("/", "./react-app/build", "localhost:3000")
+
+	// simple route
+	router.Add("GET", "/api/products", getProducts)
+
+	// role-based routing
+	router.WithRole(RoleInternal, func(rt *r.RoleRouter) {
+		router.Add("POST", "/api/product", todo)
+		router.Add("PUT", "/api/product", todo)
+	})
+
+	// api versioning (based on X-APIVersion header)
+	router.Versioned("POST", "/api/customer/create",
+		r.DefaultVersion(todo),
+		r.Version("1", todo),
+	)
+
+	// rate limiting
+	router.Add("GET", "/api/admin/reports", todo, r.RouteConfig{
+		RateLimit: &r.RateLimitConfig{
+			Count:  10,
+			Window: 10 * time.Second,
 		},
 	})
 
@@ -39,35 +65,9 @@ func main() {
 		PostPullScript: "./rebuild-and-migrate.sh",
 	})
 
-	router.ReactApp("/", "./react-app/build", "localhost:3000")
-
-	// public routes
-	router.Add("GET", "/api/products", getProducts)
-
-	// internal routes
-	router.WithRole(RoleInternal, func(rt *r.RoleRouter) {
-
-		// route based on X-APIVersion header
-		rt.Versioned("POST", "/api/customer/create",
-			r.DefaultVersion(todo),
-			r.Version("1", todo),
-		)
-
-		// with rate limiting
-		rt.Add("GET", "/api/admin/reports", todo, r.RouteConfig{
-			RateLimit: &r.RateLimitConfig{
-				Count:  10,
-				Window: 10 * time.Second,
-			},
-		})
-
-		rt.Add("POST", "/api/admin/set-credentials", todo)
-	})
-
 	server := httpdefaults.Server("8080", router)
 	log.Println("Serving on " + server.Addr)
 	log.Fatal(server.ListenAndServe())
-
 }
 
 const (

@@ -3,6 +3,7 @@ module github.com/ntbosscher/gobase
 go 1.14
 
 require (
+	cloud.google.com/go v0.70.0 // indirect
 	github.com/Masterminds/squirrel v1.4.0
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/go-sql-driver/mysql v1.4.0
@@ -17,6 +18,6 @@ require (
 	github.com/mailgun/mailgun-go v2.0.0+incompatible // indirect
 	github.com/markbates/goth v1.64.2
 	github.com/pkg/errors v0.9.1
-	golang.org/x/crypto v0.0.0-20200510223506-06a226fb4e37
+	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
 	google.golang.org/appengine v1.6.6 // indirect
 )
