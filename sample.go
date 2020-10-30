@@ -133,6 +133,8 @@ func todo(rq *res.Request) res.Responder {
 	return res.Todo()
 }
 
+type Customer struct{}
+
 func getCustomers(rq *res.Request) res.Responder {
 
 	// parse 'limit' query parameter
