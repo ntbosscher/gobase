@@ -2,6 +2,7 @@ package requestip
 
 import (
 	"context"
+	"net"
 	"net/http"
 )
 
@@ -30,12 +31,24 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		r.RemoteAddr,
 	}
 
+	var source string
+
 	for _, v := range sources {
 		if v != "" {
-			ctx = context.WithValue(ctx, _ipKey, v)
-			r = r.WithContext(ctx)
+			source = v
 			break
 		}
+	}
+
+	if source != "" {
+		// remove port if source contains a port
+		host, _, err := net.SplitHostPort(source)
+		if err == nil {
+			source = host
+		}
+
+		ctx = context.WithValue(ctx, _ipKey, source)
+		r = r.WithContext(ctx)
 	}
 
 	s.next.ServeHTTP(w, r)
