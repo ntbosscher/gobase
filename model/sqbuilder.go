@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	sq "github.com/Masterminds/squirrel"
+	"github.com/ntbosscher/gobase/model/squtil"
 	"log"
 )
 
@@ -52,7 +53,7 @@ func SelectContextString(ctx context.Context, dest interface{}, sql string, args
 	return nil
 }
 
-func SelectContext(ctx context.Context, dest interface{}, qr sq.SelectBuilder) error {
+func SelectContext(ctx context.Context, dest interface{}, qr sq.Sqlizer) error {
 	sql, args, err := qr.ToSql()
 	if err != nil {
 		log.Println(err)
@@ -69,3 +70,9 @@ func QueryRowContext(ctx context.Context, query string, args ...interface{}) *sq
 }
 
 var Builder = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
+
+// UnionBuilder is a (rather hack) implementation of Unions for squirrel query builder. They
+// currently don't offer this feature. When they do, this code should be trashed
+func UnionBuilder(a sq.SelectBuilder, b sq.SelectBuilder) squtil.UnionBuilder {
+	return squtil.Union(a, b)
+}
