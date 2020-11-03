@@ -27,7 +27,7 @@ func MustQueryRowContext(ctx context.Context, query string, params ...interface{
 	}
 }
 
-func MustSelectContext(ctx context.Context, dest interface{}, query squirrel.SelectBuilder) {
+func MustSelectContext(ctx context.Context, dest interface{}, query squirrel.Sqlizer) {
 	err := SelectContext(ctx, dest, query)
 	er.Check(err)
 }
