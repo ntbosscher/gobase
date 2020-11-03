@@ -15,7 +15,7 @@ import (
 )
 
 var Verbose = false
-var logger = log.New(os.Stdout, "gobase-githubcd: ", log.Ldate|log.Ltime)
+var logger = log.New(os.Stderr, "gobase-githubcd: ", log.Ldate|log.Ltime)
 
 type Handler struct {
 	secret         string
