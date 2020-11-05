@@ -106,6 +106,11 @@ func (c Config) getAccessTokenCookieName() string {
 	return strs.Coalesce(c.AccessTokenCookieName, "token")
 }
 
+const defaultLoginEndpoint = "/api/auth/login"
+const defaultRefreshEndpoint = "/api/auth/refresh"
+const defaultLogoutEndpoint = "/api/auth/logout"
+const defaultRegisterEndpoint = "/api/auth/register"
+
 func Setup(router *res.Router, config Config) *AuthRouter {
 	loginPath := strs.Coalesce(config.LoginPath, defaultLoginEndpoint)
 	router.Post(loginPath, loginHandler(&config))
@@ -134,11 +139,10 @@ func Setup(router *res.Router, config Config) *AuthRouter {
 		oauth.Setup(router, config.OAuth, sessionSetter)
 	}
 
-	server := middleware(config)
+	server := newServer(config)
 
-	router.Use(func(h http.Handler) http.Handler {
-		server.next = h
-		return server
+	router.Use(func(handler http.Handler) http.Handler {
+		return cloneServer(server, handler)
 	})
 
 	return &AuthRouter{
@@ -148,7 +152,14 @@ func Setup(router *res.Router, config Config) *AuthRouter {
 	}
 }
 
-func middleware(config Config) *server {
+func cloneServer(src *server, next http.Handler) *server {
+	clone := &server{}
+	*clone = *src
+	clone.next = next
+	return clone
+}
+
+func newServer(config Config) *server {
 
 	if config.CredentialChecker == nil {
 		log.Fatal("github.com/ntbosscher/gobase/auth/authhttp.Middleware(config): config requires CredentialChecker")
@@ -163,17 +174,12 @@ func middleware(config Config) *server {
 }
 
 type server struct {
-	next                     http.Handler
+	next http.Handler
 	perRequestFilter         PerRequestFilter
 	ignoreRoutesWithPrefixes []string
 	ignoreRoutes             []string
 	authHandler              func(request *res.Request) (res.Responder, context.Context)
 }
-
-const defaultLoginEndpoint = "/api/auth/login"
-const defaultRefreshEndpoint = "/api/auth/refresh"
-const defaultLogoutEndpoint = "/api/auth/logout"
-const defaultRegisterEndpoint = "/api/auth/register"
 
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
