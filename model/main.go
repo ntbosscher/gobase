@@ -21,9 +21,11 @@ func init() {
 	db = createConnection()
 }
 
+var dbType = env.Optional("DB_TYPE", "postgres")
+
 func createConnection() *sqlx.DB {
 
-	db, err := sqlx.Open(env.Optional("DB_TYPE", "postgres"), env.Require("CONNECTION_STRING"))
+	db, err := sqlx.Open(dbType, env.Require("CONNECTION_STRING"))
 	if err != nil {
 		log.Fatal(err.Error() + ": check the environment value for CONNECTION_STRING")
 	}

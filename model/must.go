@@ -12,6 +12,12 @@ func MustExecContext(ctx context.Context, query string, params ...interface{}) {
 	er.Check(err)
 }
 
+func MustInsert(ctx context.Context, query string, params ...interface{}) int64 {
+	id, err := Insert(ctx, query, params...)
+	er.Check(err)
+	return id
+}
+
 type MustQueryRowResult struct {
 	row *sql.Row
 }

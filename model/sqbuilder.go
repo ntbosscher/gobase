@@ -25,7 +25,22 @@ func ExecContext(ctx context.Context, query string, args ...interface{}) error {
 	return err
 }
 
+// Insert works just like ExecContext except that it returns the inserted id
+//
+// Insert uses QueryRow for postgres b/c the driver doesn't support .LastInsertId()
+// For your postgres insert query, be sure to include "returning <id-column>"
 func Insert(ctx context.Context, query string, args ...interface{}) (id int64, err error) {
+
+	if dbType == "postgres" {
+		err = Tx(ctx).QueryRowContext(ctx, query, args...).Scan(&id)
+		if err != nil {
+			verboseLog(err, query, args...)
+			return
+		}
+
+		return
+	}
+
 	result, err := Tx(ctx).ExecContext(ctx, query, args...)
 	if err != nil {
 		verboseLog(err, query, args...)
