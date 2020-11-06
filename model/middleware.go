@@ -66,8 +66,11 @@ func (router *txRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if err = Commit(ctx); err != nil {
 		verboseError(err)
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error": "Unable to complete transaction"}`))
+
+		if writer.StatusCode == 0 {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error": "Unable to complete transaction"}`))
+		}
 	}
 
 }
