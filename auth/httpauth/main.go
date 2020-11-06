@@ -174,7 +174,7 @@ func newServer(config Config) *server {
 }
 
 type server struct {
-	next http.Handler
+	next                     http.Handler
 	perRequestFilter         PerRequestFilter
 	ignoreRoutesWithPrefixes []string
 	ignoreRoutes             []string
@@ -304,7 +304,7 @@ func refreshHandler(config *Config) res.HandlerFunc2 {
 
 		if config.ValidateActiveUser != nil {
 			if err := config.ValidateActiveUser(rq.Context(), claims); err != nil {
-				return res.Redirect(config.LogoutPath)
+				return res.Redirect(strs.Coalesce(config.LogoutPath, defaultLogoutEndpoint))
 			}
 		}
 
