@@ -5,6 +5,7 @@ import (
 	"github.com/pkg/errors"
 	"log"
 	"net/http"
+	"runtime/debug"
 )
 
 // HandleErrors deals with panics caused by Check and CheckForDecode
@@ -26,7 +27,7 @@ func HandleErrors(callback func(input *HandlerInput)) {
 		callback(&HandlerInput{
 			Message:           err.Error(),
 			SuggestedHttpCode: 500,
-			StackTrace:        fmt.Sprintf("%+v", err),
+			StackTrace:        string(debug.Stack()),
 		})
 
 		return
