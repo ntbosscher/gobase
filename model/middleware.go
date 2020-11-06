@@ -1,6 +1,9 @@
 package model
 
-import "net/http"
+import (
+	"context"
+	"net/http"
+)
 
 // AttachTxHandler starts a database transaction so that
 // subsequent calls to Tx() will use the same transaction.
