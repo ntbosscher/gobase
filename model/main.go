@@ -43,20 +43,15 @@ func createConnection() *sqlx.DB {
 	return db
 }
 
-var _debugLogger *log.Logger
+var _debugLogger = log.New(os.Stdout, "tx-debug: ", log.Ldate|log.Ltime)
+var _discardDebugLogger = log.New(ioutil.Discard, "", log.Flags())
 
 func debugLogger() *log.Logger {
-	if _debugLogger != nil {
+	if EnableVerboseLogging {
 		return _debugLogger
 	}
 
-	if EnableVerboseLogging {
-		_debugLogger = log.New(os.Stdout, "tx-debug: ", log.Ldate|log.Ltime)
-	} else {
-		_debugLogger = log.New(ioutil.Discard, "", log.Flags())
-	}
-
-	return _debugLogger
+	return _discardDebugLogger
 }
 
 // AttachTxHandler starts a database transaction so that
