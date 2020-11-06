@@ -40,6 +40,8 @@ func createConnection() *sqlx.DB {
 	return db
 }
 
+// EnableVerboseLogging will log all queries, input parameters and errors (even ones returned to the caller).
+// This is very useful for debugging, but should be disabled in production.
 var EnableVerboseLogging = false
 
 func verboseLog(err error, query string, args ...interface{}) {
