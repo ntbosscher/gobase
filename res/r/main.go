@@ -59,6 +59,15 @@ type RateLimitConfig struct {
 	Window time.Duration
 }
 
+func RateLimit(n int, window time.Duration) RouteConfig {
+	return RouteConfig{
+		RateLimit: &RateLimitConfig{
+			Count:  n,
+			Window: window,
+		},
+	}
+}
+
 // Add adds a route to the router.
 // This route will be publicly accessible unless otherwise specified in 'config' parameter
 // or through WithRole()
