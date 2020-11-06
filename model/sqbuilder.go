@@ -15,7 +15,9 @@ func verboseLog(err error, query string, args ...interface{}) {
 		return
 	}
 
-	log.Println("query failed: " + err.Error())
+	if err != nil {
+		log.Println("query failed: " + err.Error())
+	}
 	log.Println("query input: ", query, args)
 }
 
@@ -65,22 +67,23 @@ func SelectContextString(ctx context.Context, dest interface{}, sql string, args
 		return err
 	}
 
+	verboseLog(err, sql, args...)
 	return nil
 }
 
 func SelectContext(ctx context.Context, dest interface{}, qr sq.Sqlizer) error {
 	sql, args, err := qr.ToSql()
 	if err != nil {
-		log.Println(err)
+		verboseLog(err, sql, args...)
 		return err
 	}
 
 	verboseLog(err, sql, args...)
-
 	return SelectContextString(ctx, dest, sql, args...)
 }
 
 func QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row {
+	verboseLog(nil, query, args...)
 	return Tx(ctx).QueryRowContext(ctx, query, args...)
 }
 
