@@ -37,6 +37,7 @@ func (router *txRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// don't open transactions for websocket connections
 	if websocket.IsWebSocketUpgrade(r) {
+		router.withTx.ServeHTTP(w, r)
 		return
 	}
 
