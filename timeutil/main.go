@@ -1,6 +1,9 @@
 package timeutil
 
-import "time"
+import (
+	"log"
+	"time"
+)
 
 // DateTraveler is a date-based time util that applies certain filters
 // to which days are used
@@ -52,4 +55,35 @@ type Date struct {
 
 func (dt *Date) Equals(y int, m time.Month, d int) bool {
 	return y == dt.Y && m == dt.M && d == dt.D
+}
+
+func AddBusinessDays(when time.Time, n int, holidays ...Date) time.Time {
+	dt := &DateTraveler{
+		Holidays:     holidays,
+		BusinessDays: true,
+	}
+
+	return dt.AddDays(when, n)
+}
+
+func ScheduleJob(interval time.Duration, callback func()) {
+
+	wrappedCallback := func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Println(r)
+			}
+		}()
+
+		callback()
+	}
+
+	go func() {
+		tc := time.NewTicker(interval)
+		defer tc.Stop()
+
+		for range tc.C {
+			wrappedCallback()
+		}
+	}()
 }
