@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"github.com/gorilla/websocket"
 	"net/http"
 )
 
@@ -32,6 +33,11 @@ func (router *txRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			router.withTx.ServeHTTP(w, r)
 			return
 		}
+	}
+
+	// don't open transactions for websocket connections
+	if websocket.IsWebSocketUpgrade(r) {
+		return
 	}
 
 	ctx := r.Context()
