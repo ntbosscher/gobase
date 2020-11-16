@@ -7,6 +7,7 @@ import (
 	"github.com/ntbosscher/gobase/er"
 	"github.com/ntbosscher/gobase/httpdefaults"
 	"github.com/ntbosscher/gobase/model"
+	"github.com/ntbosscher/gobase/requestip"
 	"github.com/ntbosscher/gobase/res"
 	"github.com/ntbosscher/gobase/res/r"
 	"log"
@@ -25,6 +26,9 @@ func main() {
 
 	// setup database transactions
 	router.Use(model.AttachTxHandler("/websocket"))
+
+	// make requestip.IP() available
+	router.Use(requestip.Middleware())
 
 	// setup auth
 	router.WithAuth(httpauth.Config{

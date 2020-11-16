@@ -55,5 +55,10 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func IP(ctx context.Context) string {
-	return ctx.Value(_ipKey).(string)
+	value := ctx.Value(_ipKey)
+	if value == nil {
+		return ""
+	}
+
+	return value.(string)
 }
