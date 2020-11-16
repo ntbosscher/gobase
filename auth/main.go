@@ -31,7 +31,12 @@ type userKeyType string
 var userKey userKeyType = "user-key"
 
 func Current(ctx context.Context) *UserInfo {
-	return ctx.Value(userKey).(*UserInfo)
+	value := ctx.Value(userKey)
+	if value == nil {
+		return nil
+	}
+
+	return value.(*UserInfo)
 }
 
 func IsAuthenticated(ctx context.Context) bool {
@@ -39,6 +44,10 @@ func IsAuthenticated(ctx context.Context) bool {
 }
 
 func Company(ctx context.Context) int {
+	if !IsAuthenticated(ctx) {
+		return -1
+	}
+
 	return Current(ctx).CompanyID
 }
 
@@ -49,15 +58,23 @@ func UserNull(ctx context.Context) nulls.Int {
 
 	return nulls.Int{
 		Valid: true,
-		Int: User(ctx),
+		Int:   User(ctx),
 	}
 }
 
 func User(ctx context.Context) int {
+	if !IsAuthenticated(ctx) {
+		return -1
+	}
+
 	return Current(ctx).UserID
 }
 
 func Role(ctx context.Context) TRole {
+	if !IsAuthenticated(ctx) {
+		return 0
+	}
+
 	return Current(ctx).Role
 }
 
