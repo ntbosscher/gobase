@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"github.com/dgrijalva/jwt-go"
+	"github.com/gobuffalo/nulls"
 	"math"
 )
 
@@ -39,6 +40,17 @@ func IsAuthenticated(ctx context.Context) bool {
 
 func Company(ctx context.Context) int {
 	return Current(ctx).CompanyID
+}
+
+func UserNull(ctx context.Context) nulls.Int {
+	if !IsAuthenticated(ctx) {
+		return nulls.Int{}
+	}
+
+	return nulls.Int{
+		Valid: true,
+		Int: User(ctx),
+	}
 }
 
 func User(ctx context.Context) int {

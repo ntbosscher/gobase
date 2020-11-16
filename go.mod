@@ -8,6 +8,7 @@ require (
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/go-sql-driver/mysql v1.4.0
 	github.com/gobuffalo/envy v1.9.0 // indirect
+	github.com/gobuffalo/nulls v0.4.0
 	github.com/gorilla/mux v1.7.4
 	github.com/gorilla/sessions v1.1.1
 	github.com/gorilla/websocket v1.4.2
