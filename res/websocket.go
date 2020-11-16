@@ -13,11 +13,16 @@ import (
 )
 
 type WsConn struct {
-	id       int
-	next     *websocket.Conn
-	onClose  chan bool
-	incoming chan []byte
-	mu       sync.Mutex
+	id               int
+	next             *websocket.Conn
+	onClose          chan bool
+	incoming         chan []byte
+	notifyHasMessage chan bool
+	mu               sync.Mutex
+}
+
+func (w *WsConn) HasMessage() <-chan bool {
+	return w.notifyHasMessage
 }
 
 func (w *WsConn) OnClose() <-chan bool {
@@ -96,6 +101,11 @@ func (w *WsConn) receive() {
 		}
 
 		logVerbose(w.id, errors.New("received message"))
+
+		select {
+		case w.notifyHasMessage <- true:
+		default:
+		}
 
 		select {
 		case w.incoming <- buf:
@@ -214,11 +224,12 @@ func (rt *Router) WebSocket(method string, path string, handler SocketHandler) {
 		logVerbose(id, errors.New("websocket request upgraded"))
 
 		wConn := &WsConn{
-			id:       id,
-			next:     conn,
-			incoming: make(chan []byte, 1),
-			onClose:  make(chan bool),
-			mu:       sync.Mutex{},
+			id:               id,
+			next:             conn,
+			incoming:         make(chan []byte, 1),
+			onClose:          make(chan bool),
+			notifyHasMessage: make(chan bool),
+			mu:               sync.Mutex{},
 		}
 
 		go wConn.receive()
