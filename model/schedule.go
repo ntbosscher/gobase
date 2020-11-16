@@ -15,12 +15,12 @@ func ScheduleRecurringQuery(interval time.Duration, query string) {
 			}
 		}()
 
+		// delay initial query somewhat randomly to ensure
+		// we don't block startup and queries with the same interval don't run at exactly the same time
+		<-time.After(interval / time.Duration(randomish.Int(1, 5)))
+
 		tc := time.NewTicker(interval)
 		defer tc.Stop()
-
-		// delay initial query somewhat randomly to ensure
-		// we don't block startup
-		<-time.After(time.Duration(5+randomish.Int(0, 10)) * time.Minute)
 
 		for {
 			if err := runQuery(context.Background(), query); err != nil {
