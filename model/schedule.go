@@ -3,7 +3,7 @@ package model
 import (
 	"context"
 	"github.com/jmoiron/sqlx"
-	"github.com/ntbosscher/gobase/randomish"
+	"github.com/ntbosscher/gobase/timeutil"
 	"log"
 	"time"
 )
@@ -14,80 +14,47 @@ import (
 //
 // Panicking from within callbackWithTx is treated as moreToProcess=false, err!=nil and will not break the process loop
 func ScheduleFunc(interval time.Duration, callbackWithTx func(ctx context.Context) (moreToProcess bool, err error)) {
-	go func() {
-		defer recoverWithLog()
+	timeutil.ScheduleJob(interval, func() {
 
-		// delay initial query somewhat randomly to ensure
-		// we don't block startup and queries with the same interval don't run at exactly the same time
-		<-time.After(interval / time.Duration(randomish.Int(1, 5)))
+		ctx := context.Background()
 
-		tc := time.NewTicker(interval)
-		defer tc.Stop()
+		moreToProcess := true
+		var err error
 
-		for {
-			runQueryFunc(context.Background(), callbackWithTx)
-			<-tc.C
+		for moreToProcess {
+			err = WithTx(ctx, func(ctx context.Context, tx *sqlx.Tx) error {
+				moreToProcess, err = callbackWithTx(ctx)
+				return err
+			})
+
+			if err != nil {
+				log.Println(err)
+			}
 		}
-	}()
-}
-
-func runQueryFunc(ctx context.Context, callbackWithTx func(ctx context.Context) (moreToProcess bool, err error)) {
-	defer recoverWithLog()
-
-	moreToProcess := true
-	var err error
-
-	for moreToProcess {
-		err = WithTx(ctx, func(ctx context.Context, tx *sqlx.Tx) error {
-			moreToProcess, err = callbackWithTx(ctx)
-			return err
-		})
-
-		if err != nil {
-			log.Println(err)
-		}
-	}
-}
-
-func recoverWithLog() {
-	if r := recover(); r != nil {
-		log.Println(r)
-	}
+	})
 }
 
 func ScheduleRecurringQuery(interval time.Duration, query string) {
-	go func() {
-		defer recoverWithLog()
+	timeutil.ScheduleJob(interval, func() {
+		ctx := context.Background()
 
-		// delay initial query somewhat randomly to ensure
-		// we don't block startup and queries with the same interval don't run at exactly the same time
-		<-time.After(interval / time.Duration(randomish.Int(1, 5)))
-
-		tc := time.NewTicker(interval)
-		defer tc.Stop()
-
-		for {
-			if err := runQuery(context.Background(), query); err != nil {
-				log.Println(err)
-			}
-
-			<-tc.C
+		ctx, cleanup, err := BeginTx(ctx, "scheduled-query")
+		if err != nil {
+			log.Println(err)
+			return
 		}
-	}()
-}
 
-func runQuery(ctx context.Context, query string) error {
-	ctx, cleanup, err := BeginTx(ctx, "scheduled-query")
-	if err != nil {
-		return err
-	}
+		defer cleanup()
 
-	defer cleanup()
+		_, err = Tx(ctx).ExecContext(ctx, query)
+		if err != nil {
+			log.Println(err)
+			return
+		}
 
-	_, err = Tx(ctx).ExecContext(ctx, query)
-	if err != nil {
-		return err
-	}
-
-	return Commit(ctx)
+		if err := Commit(ctx); err != nil {
+			log.Println(err)
+			return
+		}
+	})
 }

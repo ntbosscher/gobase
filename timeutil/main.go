@@ -1,6 +1,7 @@
 package timeutil
 
 import (
+	"github.com/ntbosscher/gobase/randomish"
 	"log"
 	"time"
 )
@@ -66,6 +67,8 @@ func AddBusinessDays(when time.Time, n int, holidays ...Date) time.Time {
 	return dt.AddDays(when, n)
 }
 
+// ScheduleJob runs the callback on the interval given
+// Panics within the callback are logged but do not stop the interval processor
 func ScheduleJob(interval time.Duration, callback func()) {
 
 	wrappedCallback := func() {
@@ -79,6 +82,10 @@ func ScheduleJob(interval time.Duration, callback func()) {
 	}
 
 	go func() {
+		// delay initial call somewhat randomly to ensure
+		// we don't block startup and callbacks with the same interval don't run at exactly the same time
+		<-time.After(interval / time.Duration(randomish.Int(1, 5)))
+
 		tc := time.NewTicker(interval)
 		defer tc.Stop()
 
