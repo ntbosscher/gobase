@@ -25,8 +25,37 @@ type TemplateInput struct {
 	// url or data-url
 	Logo string
 
-	Title template.HTML
-	Body  []template.HTML
+	Title          template.HTML
+	Sections       []*Section
+	ContactAddress []string
+}
+
+type Section struct {
+	Type   string // button or html
+	Button ButtonDetails
+	HTML   template.HTML
+}
+
+type ButtonDetails struct {
+	Text string
+	URL  string
+}
+
+func SectionHTML(html string) *Section {
+	return &Section{
+		Type: "html",
+		HTML: template.HTML(html),
+	}
+}
+
+func SectionButton(text string, url string) *Section {
+	return &Section{
+		Type: "button",
+		Button: ButtonDetails{
+			Text: text,
+			URL:  url,
+		},
+	}
 }
 
 func SendTemplate(to string, subject string, template *TemplateInput, attachments ...*Attachment) error {

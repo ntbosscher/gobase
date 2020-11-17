@@ -8,20 +8,38 @@ import (
 )
 
 var IsTesting bool
+var IsUnitTest bool
 
 func init() {
+
+	IsUnitTest = os.Getenv("UNIT_TEST") != ""
+
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatal("Error loading .env file: ", err.Error())
+
+		if IsUnitTest {
+			log.Println("Error loading .env file: ", err.Error())
+		} else {
+			log.Fatal("Error loading .env file: ", err.Error())
+		}
 	}
 
 	IsTesting = os.Getenv("TEST") == "true"
 }
 
+func fatal(message string) {
+	if IsUnitTest {
+		log.Println(message)
+		return
+	}
+
+	log.Fatal(message)
+}
+
 func Require(key string) string {
 	value := os.Getenv(key)
 	if value == "" {
-		log.Fatal("missing environment variable " + key)
+		fatal("missing environment variable " + key)
 	}
 
 	return value
@@ -30,7 +48,7 @@ func Require(key string) string {
 func RequireInt(key string) int {
 	i, err := strconv.Atoi(Require(key))
 	if err != nil {
-		log.Fatal("invalid environment variable value '" + Require(key) + "' for key " + key)
+		fatal("invalid environment variable value '" + Require(key) + "' for key " + key)
 	}
 
 	return i
@@ -39,7 +57,7 @@ func RequireInt(key string) int {
 func RequireBool(key string) bool {
 	i, err := strconv.ParseBool(Require(key))
 	if err != nil {
-		log.Fatal("invalid environment variable value '" + Require(key) + "' for key " + key)
+		fatal("invalid environment variable value '" + Require(key) + "' for key " + key)
 	}
 
 	return i
@@ -62,7 +80,7 @@ func OptionalBool(key string, defaultValue bool) bool {
 
 	i, err := strconv.ParseBool(v)
 	if err != nil {
-		log.Fatal("invalid environment variable value '" + v + "' for key " + key + " should be true,false or undefined")
+		fatal("invalid environment variable value '" + v + "' for key " + key + " should be true,false or undefined")
 	}
 
 	return i
@@ -76,7 +94,7 @@ func OptionalInt(key string, defaultValue int) int {
 
 	i, err := strconv.Atoi(v)
 	if err != nil {
-		log.Fatal("invalid environment variable value '" + v + "' for key " + key + " should be a number or undefined")
+		fatal("invalid environment variable value '" + v + "' for key " + key + " should be a number or undefined")
 	}
 
 	return i

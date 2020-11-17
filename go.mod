@@ -17,7 +17,7 @@ require (
 	github.com/json-iterator/go v1.1.10
 	github.com/lann/builder v0.0.0-20180802200727-47ae307949d0
 	github.com/lib/pq v1.5.2
-	github.com/mailgun/mailgun-go v2.0.0+incompatible // indirect
+	github.com/mailgun/mailgun-go v2.0.0+incompatible
 	github.com/markbates/goth v1.64.2
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 // indirect
 	github.com/pkg/errors v0.9.1
