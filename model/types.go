@@ -1,7 +1,9 @@
 package model
 
 import (
+	"database/sql/driver"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -22,6 +24,21 @@ func (n *NullByteArray) Scan(value interface{}) error {
 }
 
 type Date time.Time
+
+func (d Date) Value() (driver.Value, error) {
+	return time.Time(d), nil
+}
+
+func (d *Date) Scan(value interface{}) error {
+	switch v := value.(type) {
+	case time.Time:
+		*d = Date(v)
+	default:
+		return fmt.Errorf("invalid Scan(%T) for model.Date", v)
+	}
+
+	return nil
+}
 
 const dateFormat = "2006-01-02"
 
