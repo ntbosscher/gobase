@@ -46,9 +46,9 @@ func GetContext(ctx context.Context, dest interface{}, query string, args ...int
 	return err
 }
 
-// SelectContextString runs the query and scans the resulting rows into dest.
+// SelectContext runs the query and scans the resulting rows into dest.
 // Dest must be a pointer to a array-type (e.g. *[]*Person)
-func SelectContextString(ctx context.Context, dest interface{}, sql string, args ...interface{}) error {
+func SelectContext(ctx context.Context, dest interface{}, sql string, args ...interface{}) error {
 	err := Tx(ctx).SelectContext(ctx, dest, sql, args...)
 	if err != nil {
 		verboseLog(err, sql, args...)

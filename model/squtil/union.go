@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/Masterminds/squirrel"
+	sq "github.com/Masterminds/squirrel"
 	"github.com/lann/builder"
 	"strings"
 )
@@ -16,7 +16,7 @@ func init() {
 
 type unionSelect struct {
 	op       string // e.g. "UNION"
-	selector squirrel.SelectBuilder
+	selector sq.SelectBuilder
 }
 
 type unionData struct {
@@ -43,7 +43,7 @@ func (u UnionBuilder) ToSql() (sql string, args []interface{}, err error) {
 	}
 
 	value, _ := builder.Get(data.Selects[0].selector, "PlaceholderFormat")
-	placeholderFmt := value.(squirrel.PlaceholderFormat)
+	placeholderFmt := value.(sq.PlaceholderFormat)
 
 	sqlBuf := &bytes.Buffer{}
 	var selArgs []interface{}
@@ -52,7 +52,7 @@ func (u UnionBuilder) ToSql() (sql string, args []interface{}, err error) {
 	for index, selector := range data.Selects {
 
 		// use a no-change formatter to prevent issues with numbering args
-		sel := selector.selector.PlaceholderFormat(squirrel.Question)
+		sel := selector.selector.PlaceholderFormat(sq.Question)
 
 		selSql, selArgs, err = sel.ToSql()
 		if err != nil {
@@ -82,11 +82,11 @@ func (u UnionBuilder) ToSql() (sql string, args []interface{}, err error) {
 	return
 }
 
-func (u UnionBuilder) Union(selector squirrel.SelectBuilder) UnionBuilder {
+func (u UnionBuilder) Union(selector sq.SelectBuilder) UnionBuilder {
 	return builder.Append(u, "Selects", &unionSelect{op: "UNION", selector: selector}).(UnionBuilder)
 }
 
-func (u UnionBuilder) setFirstSelect(selector squirrel.SelectBuilder) UnionBuilder {
+func (u UnionBuilder) setFirstSelect(selector sq.SelectBuilder) UnionBuilder {
 	return builder.Append(u, "Selects", &unionSelect{op: "", selector: selector}).(UnionBuilder)
 }
 
@@ -98,9 +98,17 @@ func (u UnionBuilder) OrderBy(orderBys ...string) UnionBuilder {
 	return u.setProp("OrderBy", orderBys)
 }
 
-func Union(a squirrel.SelectBuilder, b squirrel.SelectBuilder) UnionBuilder {
+func Union(a sq.SelectBuilder, b sq.SelectBuilder) UnionBuilder {
 	ub := UnionBuilder{}
 	ub = ub.setFirstSelect(a)
 
 	return ub.Union(b)
+}
+
+func NewUnion() UnionBuilder {
+	return UnionBuilder{}
+}
+
+func SelectFromUnion(selectBuilder sq.SelectBuilder, union UnionBuilder, alias string) sq.SelectBuilder {
+	return builder.Set(selectBuilder, "From", sq.Alias(union, alias)).(sq.SelectBuilder)
 }

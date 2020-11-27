@@ -1,12 +1,14 @@
 package main
 
 import (
+	"github.com/Masterminds/squirrel"
 	"github.com/ntbosscher/gobase/auth"
 	"github.com/ntbosscher/gobase/auth/httpauth"
 	"github.com/ntbosscher/gobase/env"
 	"github.com/ntbosscher/gobase/er"
 	"github.com/ntbosscher/gobase/httpdefaults"
 	"github.com/ntbosscher/gobase/model"
+	"github.com/ntbosscher/gobase/model/squtil"
 	"github.com/ntbosscher/gobase/requestip"
 	"github.com/ntbosscher/gobase/res"
 	"github.com/ntbosscher/gobase/res/r"
@@ -145,11 +147,15 @@ func getCustomers(rq *res.Request) res.Responder {
 	limit := rq.GetQueryInt("limit")
 	customer := &Customer{}
 
+	qr := model.Builder.Select("*").From("customer").Where(squirrel.Eq{
+		"company": auth.Company(rq.Context()),
+	}).Limit(uint64(limit))
+
 	// db transaction flows from model.AttachTxHandler through rq.Context() and
 	// will be auto committed if we return a non-error response
 	//
 	// get current user's company id from context
-	err := model.GetContext(rq.Context(), customer, "select * from customer where company = $1 limit $2", auth.Company(rq.Context()), limit)
+	err := squtil.GetContext(rq.Context(), customer, qr)
 	er.Check(err) // return http 500 with json encoded {error: "string"} value
 
 	// return http 200 with customer json encoded with camelCase keys

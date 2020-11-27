@@ -3,7 +3,6 @@ package model
 import (
 	"context"
 	"database/sql"
-	"github.com/Masterminds/squirrel"
 	"github.com/ntbosscher/gobase/er"
 )
 
@@ -33,13 +32,8 @@ func MustQueryRowContext(ctx context.Context, query string, params ...interface{
 	}
 }
 
-func MustSelectContext(ctx context.Context, dest interface{}, query squirrel.Sqlizer) {
-	err := SelectContext(ctx, dest, query)
-	er.Check(err)
-}
-
-func MustSelectContextString(ctx context.Context, dest interface{}, query string, params ...interface{}) {
-	err := SelectContextString(ctx, dest, query, params...)
+func MustSelectContext(ctx context.Context, dest interface{}, query string, params ...interface{}) {
+	err := SelectContext(ctx, dest, query, params...)
 	er.Check(err)
 }
 
