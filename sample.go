@@ -44,25 +44,18 @@ func main() {
 	// simple route
 	router.Add("GET", "/api/products", getProducts)
 
-	// role-based routing
-	router.WithRole(RoleInternal, func(rt *r.RoleRouter) {
-		router.Add("POST", "/api/product", todo)
-		router.Add("PUT", "/api/product", todo)
-	})
+	// restrict to internal users
+	router.Add("POST", "/api/product", todo, RoleInternal)
+	router.Add("PUT", "/api/product", todo, RoleInternal)
 
 	// api versioning (based on X-APIVersion header)
-	router.Versioned("POST", "/api/customer/create",
+	router.Add("POST", "/api/customer/create", r.Versioned(
 		r.DefaultVersion(todo),
 		r.Version("1", todo),
-	)
+	))
 
 	// rate limiting
-	router.Add("GET", "/api/admin/reports", todo, r.RouteConfig{
-		RateLimit: &r.RateLimitConfig{
-			Count:  10,
-			Window: 10 * time.Second,
-		},
-	})
+	router.Add("GET", "/api/admin/reports", todo, r.RateLimit(10, 10*time.Second))
 
 	// receive a github post-push hook and auto-update ourselves
 	router.GithubContinuousDeployment(res.GithubCDInput{
@@ -77,9 +70,9 @@ func main() {
 }
 
 const (
-	RoleUser      = 0x1 << iota
-	RoleSupport   = 0x1 << iota
-	RoleSuperUser = 0x1 << iota
+	RoleUser      auth.TRole = 0x1 << iota
+	RoleSupport   auth.TRole = 0x1 << iota
+	RoleSuperUser auth.TRole = 0x1 << iota
 )
 
 const (
