@@ -50,15 +50,21 @@ func (r *Router) Add(method string, path string, config ...RouteConfig) {
 	requiredRole := auth.Public
 	var handler res.HandlerFunc2
 
-	for _, item := range config {
-		switch v := item.(type) {
-		case res.HandlerFunc2:
-			handler = v
-		case auth.TRole:
-			requiredRole = requiredRole | v
-			// add at the end so we can OR all the roles that come along
-		case Middleware:
-			cfg.next = append(cfg.next, v)
+	configs := [][]RouteConfig{config}
+
+	for i := 0; i < len(configs); i++ {
+		for _, item := range config {
+			switch v := item.(type) {
+			case []RouteConfig:
+				configs = append(configs, v)
+			case res.HandlerFunc2:
+				handler = v
+			case auth.TRole:
+				requiredRole = requiredRole | v
+				// add at the end so we can OR all the roles that come along
+			case Middleware:
+				cfg.next = append(cfg.next, v)
+			}
 		}
 	}
 
