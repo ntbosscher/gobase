@@ -53,7 +53,7 @@ func (r *Router) Add(method string, path string, config ...RouteConfig) {
 	configs := [][]RouteConfig{config}
 
 	for i := 0; i < len(configs); i++ {
-		for _, item := range config {
+		for _, item := range configs[i] {
 			switch v := item.(type) {
 			case []RouteConfig:
 				configs = append(configs, v)
