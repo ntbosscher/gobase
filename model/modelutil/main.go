@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"github.com/Masterminds/squirrel"
 	"github.com/jmoiron/sqlx"
 	"github.com/ntbosscher/gobase/model"
+	"github.com/ntbosscher/gobase/model/squtil"
+	"reflect"
+	"strings"
 	"time"
 )
 
@@ -100,4 +104,59 @@ func (s *stringScanner) Scan(src interface{}) error {
 	}
 
 	return nil
+}
+
+func containsFieldName(list []string, test string) bool {
+	for _, value := range list {
+		if value == test || strings.HasPrefix(test, value+".") {
+			return true
+		}
+	}
+
+	return false
+}
+
+func InsertStruct(ctx context.Context, table string, value interface{}, ignoreFields ...string) int {
+
+	insert := squirrel.Eq{}
+
+	tx := model.Tx(ctx)
+	withDbNames := tx.Mapper.FieldMap(reflect.ValueOf(value))
+
+	ignoreFields = append(ignoreFields, "id")
+
+	for k, v := range withDbNames {
+		if containsFieldName(ignoreFields, k) {
+			continue
+		}
+
+		insert[k] = v.Interface()
+	}
+
+	qr := model.Builder.Insert(table).SetMap(insert).Suffix("returning id")
+	return int(squtil.MustInsert(ctx, qr))
+}
+
+func UpdateStruct(ctx context.Context, table string, value interface{}, id int, ignoreFields ...string) {
+
+	update := squirrel.Eq{}
+
+	tx := model.Tx(ctx)
+	withDbNames := tx.Mapper.FieldMap(reflect.ValueOf(value))
+
+	ignoreFields = append(ignoreFields, "id")
+
+	for k, v := range withDbNames {
+		if containsFieldName(ignoreFields, k) {
+			continue
+		}
+
+		update[k] = v.Interface()
+	}
+
+	qr := model.Builder.Update(table).
+		SetMap(update).
+		Where(squirrel.Eq{"id": id})
+
+	squtil.MustExecContext(ctx, qr)
 }
