@@ -15,7 +15,9 @@ import (
 var db *sqlx.DB
 
 func init() {
-	db = createConnection()
+	if !env.IsUnitTest {
+		db = createConnection()
+	}
 }
 
 var dbType = env.Optional("DB_TYPE", "postgres")

@@ -20,7 +20,9 @@ func init() {
 		if IsUnitTest {
 			log.Println("Error loading .env file: ", err.Error())
 		} else {
-			log.Fatal("Error loading .env file: ", err.Error())
+			log.Println("Error loading .env file: ", err.Error())
+			log.Println("If this is a unit test, try passing the UNIT_TEST=true environment variable to bi-pass this")
+			log.Fatal()
 		}
 	}
 

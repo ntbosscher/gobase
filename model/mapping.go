@@ -38,7 +38,7 @@ func SnakeCaseStructNameMapping(structCol string) string {
 			continue
 		}
 
-		if unicode.IsUpper(c) {
+		if unicode.IsUpper(c) || unicode.IsNumber(c) {
 			if lastIsLower {
 				dst = append(dst, '_')
 			}
