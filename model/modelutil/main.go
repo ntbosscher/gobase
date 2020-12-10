@@ -126,6 +126,10 @@ func InsertStruct(ctx context.Context, table string, value interface{}, ignoreFi
 	ignoreFields = append(ignoreFields, "id")
 
 	for k, v := range withDbNames {
+		if strings.Contains(k, ".") { // ignore sub properties
+			continue
+		}
+
 		if containsFieldName(ignoreFields, k) {
 			continue
 		}
