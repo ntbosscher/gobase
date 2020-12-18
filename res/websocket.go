@@ -206,8 +206,11 @@ var muWebsocketIdCounter = &sync.Mutex{}
 // WebSocket creates an endpoint to handle websocket upgrades. handler is responsible
 // for processing and closing the connection.
 func (rt *Router) WebSocket(method string, path string, handler SocketHandler) {
+	rt.next.Methods(method).Path(path).HandlerFunc(WebSocket(handler))
+}
 
-	rt.next.Methods(method).Path(path).HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+func WebSocket(handler SocketHandler) func(writer http.ResponseWriter, request *http.Request) {
+	return func(writer http.ResponseWriter, request *http.Request) {
 
 		muWebsocketIdCounter.Lock()
 		websocketIdCounter++
@@ -235,5 +238,5 @@ func (rt *Router) WebSocket(method string, path string, handler SocketHandler) {
 		go wConn.receive()
 		go wConn.watch()
 		handler(request.Context(), wConn)
-	})
+	}
 }
