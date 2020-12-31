@@ -4,6 +4,7 @@ import (
 	"github.com/joho/godotenv"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 )
 
@@ -14,7 +15,7 @@ func init() {
 
 	IsUnitTest = os.Getenv("UNIT_TEST") != ""
 
-	err := godotenv.Load()
+	err := godotenv.Load(envSearch()...)
 	if err != nil {
 
 		if IsUnitTest {
@@ -27,6 +28,29 @@ func init() {
 	}
 
 	IsTesting = os.Getenv("TEST") == "true"
+}
+
+func envSearch() []string {
+
+	search := []string{".env"}
+
+	execDir, err := filepath.Abs(filepath.Dir(os.Args[0]))
+	if err != nil {
+		log.Println(err)
+	} else {
+		search = append(search, filepath.Join(execDir, ".env"))
+	}
+
+	// first search path that exists
+	for _, file := range search {
+		_, err := os.Stat(file)
+		if err == nil {
+			return []string{file}
+		}
+	}
+
+	// fallback to godotenv.Load defaults
+	return []string{}
 }
 
 func fatal(message string) {
