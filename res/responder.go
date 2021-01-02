@@ -209,7 +209,7 @@ func List(list interface{}) Responder {
 func AppError(str string) Responder {
 	return &responder{
 		status: http.StatusInternalServerError,
-		data:   errorData(str, ""),
+		data:   errorData(str, "", ""),
 	}
 }
 
@@ -223,7 +223,7 @@ func Accepted(status int, data interface{}) Responder {
 func BadRequest(str string) Responder {
 	return &responder{
 		status: http.StatusBadRequest,
-		data:   errorData(str, ""),
+		data:   errorData(str, "", ""),
 	}
 }
 
@@ -238,14 +238,14 @@ func Redirect(url string) Responder {
 func InternalServerError(str string) Responder {
 	return &responder{
 		status: http.StatusInternalServerError,
-		data:   errorData(str, ""),
+		data:   errorData(str, "", ""),
 	}
 }
 
 func UnProcessable() Responder {
 	return &responder{
 		status: http.StatusUnprocessableEntity,
-		data:   errorData("unable to process that request", ""),
+		data:   errorData("unable to process that request", "", ""),
 	}
 }
 
@@ -276,7 +276,7 @@ func NotAuthorized(reason ...string) Responder {
 
 	return &responder{
 		status: http.StatusUnauthorized,
-		data:   errorData("not authorized", ""),
+		data:   errorData("not authorized", "", msg),
 	}
 }
 
@@ -294,9 +294,10 @@ func ShowBasicAuthPrompt(message string) Responder {
 	}
 }
 
-func errorData(str string, stackTrace string) interface{} {
+func errorData(str string, stackTrace string, msg string) interface{} {
 	return map[string]interface{}{
 		"error":      str,
+		"message":    msg,
 		"stackTrace": stackTrace,
 	}
 }
