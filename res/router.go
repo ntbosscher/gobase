@@ -131,7 +131,7 @@ func AutoHandleHttpPanics(wr http.ResponseWriter, req *http.Request) {
 	er.HandleErrors(func(input *er.HandlerInput) {
 		res := &responder{
 			status: input.SuggestedHttpCode,
-			data:   errorData(input.Message, input.StackTrace),
+			data:   errorData(input.Message, input.StackTrace, ""),
 		}
 
 		res.Respond(wr, req)
