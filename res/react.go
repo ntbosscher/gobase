@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -32,8 +33,12 @@ func (router *reactRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	fpath := filepath.Join(router.staticDir, path.Clean(r.URL.Path))
+	_, err := os.Stat(fpath)
+	is404 := os.IsNotExist(err)
+
 	// if it isn't a static file, serve up index.html
-	if path.Ext(r.URL.Path) == "" {
+	if is404 {
 		defaultFile := filepath.Join(router.staticDir, "index.html")
 		http.ServeFile(w, r, defaultFile)
 		return
