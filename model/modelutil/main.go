@@ -141,8 +141,7 @@ func InsertStruct(ctx context.Context, table string, value interface{}, ignoreFi
 	return int(squtil.MustInsert(ctx, qr))
 }
 
-func UpdateStruct(ctx context.Context, table string, value interface{}, id int, ignoreFields ...string) {
-
+func BuildUpdate(ctx context.Context, table string, value interface{}, id int, ignoreFields ...string) squirrel.UpdateBuilder {
 	update := squirrel.Eq{}
 
 	tx := model.Tx(ctx)
@@ -162,9 +161,13 @@ func UpdateStruct(ctx context.Context, table string, value interface{}, id int, 
 		update[k] = v.Interface()
 	}
 
-	qr := model.Builder.Update(table).
+	return model.Builder.Update(table).
 		SetMap(update).
 		Where(squirrel.Eq{"id": id})
 
+}
+
+func UpdateStruct(ctx context.Context, table string, value interface{}, id int, ignoreFields ...string) {
+	qr := BuildUpdate(ctx, table, value, id, ignoreFields...)
 	squtil.MustExecContext(ctx, qr)
 }
