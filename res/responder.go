@@ -27,6 +27,10 @@ func init() {
 	})
 }
 
+func GetJSONInstance() jsoniter.API {
+	return json
+}
+
 // SetErrorResponseLogging determines where to pipe http errors
 // by default errors are sent to /dev/null
 func SetErrorResponseLogging(writer io.Writer) {
