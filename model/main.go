@@ -3,8 +3,8 @@ package model
 
 import (
 	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/jackc/pgx"
 	"github.com/jmoiron/sqlx"
-	_ "github.com/lib/pq"
 	"github.com/ntbosscher/gobase/env"
 	"io/ioutil"
 	"log"
