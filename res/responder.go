@@ -1,6 +1,7 @@
 package res
 
 import (
+	"fmt"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/json-iterator/go/extra"
 	"io"
@@ -83,15 +84,36 @@ func (resp *responder) Respond(w http.ResponseWriter, r *http.Request) {
 	if resp.status >= 400 {
 		if !ignoreErrorLog(resp.status, resp.data, r) {
 
-			js, _ := json.MarshalIndent(resp.data, "", "   ")
-			jsStr := string(js)
-			if jsStr != `""` {
-				jsStr = "\n" + jsStr
+			debugStr := ""
+
+			if mapValue, isMap := resp.data.(map[string]interface{}); isMap {
+				// write out the key = value per line to make debugging easier
+				bld := strings.Builder{}
+				bld.WriteString("\n")
+				for k, v := range mapValue {
+					bld.WriteString("    ")
+					bld.WriteString(k)
+					bld.WriteString(":  ")
+					bld.WriteString(fmt.Sprint(v))
+					bld.WriteString("\n")
+				}
+
+				debugStr = bld.String()
 			} else {
-				jsStr = ""
+				// Who knows what type of object this is. Let's just json-encode it so the developer
+				// can read it.
+				js, _ := json.MarshalIndent(resp.data, "", "   ")
+				jsStr := string(js)
+				if jsStr != `""` {
+					jsStr = "\n" + jsStr
+				} else {
+					jsStr = ""
+				}
+
+				debugStr = jsStr
 			}
 
-			errorLogger.Printf("request failed: %s %s -> %d%s", r.Method, r.URL, resp.status, jsStr)
+			errorLogger.Printf("request failed: %s %s -> %d%s", r.Method, r.URL, resp.status, debugStr)
 		}
 	}
 
