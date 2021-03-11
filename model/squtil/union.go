@@ -72,7 +72,7 @@ func (u UnionBuilder) ToSql() (sql string, args []interface{}, err error) {
 		sqlBuf.WriteString(data.Limit)
 	}
 
-	sql = sqlBuf.String()
+	sql, err = data.PlaceholderFormat.ReplacePlaceholders(sqlBuf.String())
 	return
 }
 
