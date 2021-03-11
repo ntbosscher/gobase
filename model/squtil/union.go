@@ -20,9 +20,10 @@ type unionSelect struct {
 }
 
 type unionData struct {
-	Selects []*unionSelect
-	Limit   string
-	OrderBy []string
+	Selects           []*unionSelect
+	Limit             string
+	OrderBy           []string
+	PlaceholderFormat sq.PlaceholderFormat
 }
 
 // UnionBuilder is a (rather hack) implementation of Unions for squirrel query builder. They
@@ -34,7 +35,6 @@ func (u UnionBuilder) setProp(key string, value interface{}) UnionBuilder {
 }
 
 func (u UnionBuilder) ToSql() (sql string, args []interface{}, err error) {
-
 	data := builder.GetStruct(u).(unionData)
 
 	if len(data.Selects) == 0 {
@@ -42,19 +42,13 @@ func (u UnionBuilder) ToSql() (sql string, args []interface{}, err error) {
 		return
 	}
 
-	value, _ := builder.Get(data.Selects[0].selector, "PlaceholderFormat")
-	placeholderFmt := value.(sq.PlaceholderFormat)
-
 	sqlBuf := &bytes.Buffer{}
 	var selArgs []interface{}
 	var selSql string
 
 	for index, selector := range data.Selects {
 
-		// use a no-change formatter to prevent issues with numbering args
-		sel := selector.selector.PlaceholderFormat(sq.Question)
-
-		selSql, selArgs, err = sel.ToSql()
+		selSql, selArgs, err = selector.selector.ToSql()
 		if err != nil {
 			return
 		}
@@ -78,16 +72,27 @@ func (u UnionBuilder) ToSql() (sql string, args []interface{}, err error) {
 		sqlBuf.WriteString(data.Limit)
 	}
 
-	sql, err = placeholderFmt.ReplacePlaceholders(sqlBuf.String())
+	sql = sqlBuf.String()
 	return
 }
 
 func (u UnionBuilder) Union(selector sq.SelectBuilder) UnionBuilder {
+	// use ? in children to prevent numbering issues
+	selector = selector.PlaceholderFormat(sq.Question)
+
 	return builder.Append(u, "Selects", &unionSelect{op: "UNION", selector: selector}).(UnionBuilder)
 }
 
 func (u UnionBuilder) setFirstSelect(selector sq.SelectBuilder) UnionBuilder {
-	return builder.Append(u, "Selects", &unionSelect{op: "", selector: selector}).(UnionBuilder)
+
+	// copy the PlaceholderFormat value from children since we don't know what it should be
+	value, _ := builder.Get(selector, "PlaceholderFormat")
+	bld := u.setProp("PlaceholderFormat", value)
+
+	// use ? in children to prevent numbering issues
+	selector = selector.PlaceholderFormat(sq.Question)
+
+	return builder.Append(bld, "Selects", &unionSelect{op: "", selector: selector}).(UnionBuilder)
 }
 
 func (u UnionBuilder) Limit(n uint) UnionBuilder {
@@ -98,10 +103,13 @@ func (u UnionBuilder) OrderBy(orderBys ...string) UnionBuilder {
 	return u.setProp("OrderBy", orderBys)
 }
 
+func (u UnionBuilder) PlaceholderFormat(fmt sq.PlaceholderFormat) UnionBuilder {
+	return u.setProp("PlaceholderFormat", fmt)
+}
+
 func Union(a sq.SelectBuilder, b sq.SelectBuilder) UnionBuilder {
 	ub := UnionBuilder{}
 	ub = ub.setFirstSelect(a)
-
 	return ub.Union(b)
 }
 
@@ -110,5 +118,8 @@ func NewUnion() UnionBuilder {
 }
 
 func SelectFromUnion(selectBuilder sq.SelectBuilder, union UnionBuilder, alias string) sq.SelectBuilder {
+	// use ? in child to prevent numbering issues
+	union = union.PlaceholderFormat(sq.Question)
+
 	return builder.Set(selectBuilder, "From", sq.Alias(union, alias)).(sq.SelectBuilder)
 }
