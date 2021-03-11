@@ -27,7 +27,6 @@ func TestCalendar(t *testing.T) {
 	}
 }
 
-
 func TestCalendar2(t *testing.T) {
 	bd := &DateTraveler{
 		BusinessDays: true,
@@ -64,5 +63,33 @@ func TestCalendar3(t *testing.T) {
 
 	if tm.Hour() != 2 {
 		t.Fatal("should have preserved hours")
+	}
+}
+
+func TestNextWeekday(t *testing.T) {
+	for i := time.Sunday; i <= time.Saturday; i++ {
+		src := time.Date(2000, 01, 01+int(i), 0, 0, 0, 0, time.UTC)
+		tm := NextWeekday(src, time.Wednesday)
+		if tm.Weekday() != time.Wednesday {
+			t.Error("invalid weekday for next wednesday after", src.String(), "got", tm.Weekday())
+		}
+	}
+}
+
+func TestSetTime(t *testing.T) {
+	src := time.Date(2000, 01, 01, 0, 0, 0, 0, time.UTC)
+	dst := SetTime(src, 1, 59, 3)
+
+	hr, min, sec := dst.Clock()
+	if hr != 1 {
+		t.Error("invalid hour", hr)
+	}
+
+	if min != 59 {
+		t.Error("invalid min", min)
+	}
+
+	if sec != 3 {
+		t.Error("invalid sec", sec)
 	}
 }

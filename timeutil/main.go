@@ -40,7 +40,7 @@ func (c *DateTraveler) Contains(when time.Time) bool {
 	y, m, d := when.Date()
 
 	for _, item := range c.Holidays {
-		if item.Equals(y,m,d) {
+		if item.Equals(y, m, d) {
 			return false
 		}
 	}
@@ -93,4 +93,20 @@ func ScheduleJob(interval time.Duration, callback func()) {
 			wrappedCallback()
 		}
 	}()
+}
+
+func NextWeekday(tm time.Time, desired time.Weekday) time.Time {
+	current := tm.Weekday()
+	add := desired - current
+	if add < 0 {
+		add += 7
+	}
+
+	return tm.AddDate(0, 0, int(add))
+}
+
+func SetTime(tm time.Time, hr int, min int, sec int) time.Time {
+	y, m, d := tm.Date()
+	loc := tm.Location()
+	return time.Date(y, m, d, hr, min, sec, 0, loc)
 }
