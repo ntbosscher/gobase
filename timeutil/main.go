@@ -110,3 +110,10 @@ func SetTime(tm time.Time, hr int, min int, sec int) time.Time {
 	loc := tm.Location()
 	return time.Date(y, m, d, hr, min, sec, 0, loc)
 }
+
+func DateEquals(a time.Time, b time.Time) bool {
+	y0, m0, d0 := a.Date()
+	y1, m1, d1 := b.Date()
+
+	return y0 == y1 && m0 == m1 && d0 == d1
+}
