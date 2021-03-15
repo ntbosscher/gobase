@@ -38,8 +38,9 @@ func (router *reactRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	is404 := os.IsNotExist(err)
 
 	// if it isn't a static file, serve up index.html
-	if is404 {
+	if is404 || r.URL.Path == "/" {
 		defaultFile := filepath.Join(router.staticDir, "index.html")
+		NoCacheFunc(w, r)
 		http.ServeFile(w, r, defaultFile)
 		return
 	}
