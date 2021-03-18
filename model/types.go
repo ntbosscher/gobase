@@ -1,9 +1,11 @@
 package model
 
 import (
+	"bytes"
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -60,4 +62,76 @@ func (d *Date) UnmarshalJSON(b []byte) error {
 func (d Date) MarshalJSON() ([]byte, error) {
 	s := time.Time(d).Format(dateFormat)
 	return json.Marshal(s)
+}
+
+type NullablePoint struct {
+	Valid bool
+	Y     float64
+	X     float64
+}
+
+func (p NullablePoint) MarshalJSON() ([]byte, error) {
+	if !p.Valid {
+		return []byte(`null`), nil
+	}
+
+	return json.Marshal(map[string]interface{}{
+		"x": p.X,
+		"y": p.Y,
+	})
+}
+
+func (p *NullablePoint) UnmarshalJSON(b []byte) error {
+	*p = NullablePoint{}
+
+	if string(b) == "null" {
+		return nil
+	}
+
+	v := struct {
+		X float64
+		Y float64
+	}{}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+
+	p.Valid = true
+	p.Y = v.Y
+	p.X = v.X
+
+	return nil
+}
+
+func (p *NullablePoint) Scan(value interface{}) error {
+	*p = NullablePoint{}
+
+	if value == nil {
+		return nil
+	}
+
+	b := value.([]byte)
+	b = bytes.Trim(b, "()")
+	parts := bytes.Split(b, []byte(","))
+
+	var err error
+	p.X, err = strconv.ParseFloat(string(parts[0]), 64)
+	if err != nil {
+		return err
+	}
+
+	p.Y, err = strconv.ParseFloat(string(parts[1]), 64)
+	if err != nil {
+		return err
+	}
+
+	p.Valid = true
+	return nil
+}
+
+func (p NullablePoint) Value() (driver.Value, error) {
+	if !p.Valid {
+		return nil, nil
+	}
+	return fmt.Sprint("(", p.X, ",", p.Y, ")"), nil
 }
