@@ -7,9 +7,18 @@ import (
 	"github.com/ntbosscher/gobase/ratelimit"
 	"github.com/ntbosscher/gobase/res"
 	"github.com/ntbosscher/gobase/strs"
+	"io/ioutil"
 	"log"
+	"os"
+	"reflect"
 	"time"
 )
+
+var logger = log.New(os.Stderr, "gobase/res/r: ", log.Llongfile)
+
+func DisableLogging() {
+	logger = log.New(ioutil.Discard, "", log.Llongfile)
+}
 
 type Router struct {
 	*res.Router
@@ -64,6 +73,8 @@ func (r *Router) Add(method string, path string, config ...RouteConfig) {
 				// add at the end so we can OR all the roles that come along
 			case Middleware:
 				cfg.next = append(cfg.next, v)
+			default:
+				logger.Println("route", method, path, "unrecognized route option type", reflect.TypeOf(item).String())
 			}
 		}
 	}
