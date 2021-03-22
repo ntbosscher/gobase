@@ -74,7 +74,7 @@ func (r *Router) Add(method string, path string, config ...RouteConfig) {
 			case Middleware:
 				cfg.next = append(cfg.next, v)
 			default:
-				logger.Println("route", method, path, "unrecognized route option type", reflect.TypeOf(item).String())
+				logger.Println("warning: route", method, path, "unrecognized route option type", reflect.TypeOf(item).String())
 			}
 		}
 	}
