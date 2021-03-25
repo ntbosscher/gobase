@@ -2,7 +2,6 @@ package r
 
 import (
 	"errors"
-	"fmt"
 	"github.com/ntbosscher/gobase/auth"
 	"github.com/ntbosscher/gobase/auth/httpauth"
 	"github.com/ntbosscher/gobase/er"
@@ -14,6 +13,7 @@ import (
 	"log"
 	"os"
 	"reflect"
+	"strings"
 	"time"
 )
 
@@ -77,9 +77,10 @@ func (r *Router) Add(method string, path string, config ...RouteConfig) {
 			case Middleware:
 				cfg.next = append(cfg.next, v)
 			default:
-				err := errors.New(fmt.Sprint("warning: route", method, path, "unrecognized route option type", reflect.TypeOf(item).String()))
+				err := errors.New(strings.Join([]string{"warning: route", method, path, "unrecognized route option type", reflect.TypeOf(item).String()}, " "))
 				err = errors2.WithStack(err)
-				logger.Println(err)
+				logger.Printf("%+v", err)
+				logger.Println()
 			}
 		}
 	}
