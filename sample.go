@@ -13,6 +13,7 @@ import (
 	"github.com/ntbosscher/gobase/requestip"
 	"github.com/ntbosscher/gobase/res"
 	"github.com/ntbosscher/gobase/res/r"
+	"github.com/pkg/errors"
 	"log"
 	"os"
 	"time"
@@ -48,7 +49,7 @@ func main() {
 	// restrict to internal users
 	router.Add("POST", "/api/product", todo, RoleInternal)
 	router.Add("PUT", "/api/product", todo, RoleInternal)
-	router.Add("POST", "/api/product/upload", uploadProduct, RoleInternal)
+	router.Add("POST", "/api/product/upload", uploadProduct, routeSpecificMiddleware, RoleInternal)
 
 	// api versioning (based on X-APIVersion header)
 	router.Add("POST", "/api/customer/create", r.Versioned(
@@ -71,6 +72,16 @@ func main() {
 	log.Fatal(server.ListenAndServe())
 }
 
+var routeSpecificMiddleware = r.Middleware(func(router *r.Router, method string, path string, handler res.HandlerFunc2) res.HandlerFunc2 {
+	return func(rq *res.Request) res.Responder {
+		if rq.Request().Header.Get("X-Source") == "mobile" {
+			return res.Error(errors.New("mobile not supported on this route"))
+		}
+
+		return handler(rq)
+	}
+})
+
 const (
 	RoleUser      auth.TRole = 0x1 << iota
 	RoleSupport   auth.TRole = 0x1 << iota
@@ -88,12 +99,17 @@ func getProducts(rq *res.Request) res.Responder {
 func uploadProduct(rq *res.Request) res.Responder {
 	file := rq.MultipartFile("file")
 
-	s3fs.Upload(rq.Context(), []*s3fs.UploadInput{{
+	err := s3fs.Upload(rq.Context(), []*s3fs.UploadInput{{
 		FileName:   file.Filename,
 		Key:        "product-file",
 		FileHeader: file,
 	}})
-	return res.Todo()
+
+	if err != nil {
+		return res.Error(err)
+	}
+
+	return res.Ok()
 }
 
 type User struct {
