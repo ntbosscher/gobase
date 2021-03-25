@@ -79,7 +79,7 @@ func (u *uploadIterator) initialize() error {
 	return nil
 }
 
-func (u *uploadIterator) cleanup() error {
+func (u *uploadIterator) cleanup() {
 	for _, file := range u.openMultipartFiles {
 		file.Close()
 	}
