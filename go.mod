@@ -5,6 +5,7 @@ go 1.14
 require (
 	cloud.google.com/go v0.70.0 // indirect
 	github.com/Masterminds/squirrel v1.4.0
+	github.com/aws/aws-sdk-go v1.38.4
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/go-sql-driver/mysql v1.4.0
 	github.com/gobuffalo/envy v1.9.0 // indirect

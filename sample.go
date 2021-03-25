@@ -7,6 +7,7 @@ import (
 	"github.com/ntbosscher/gobase/env"
 	"github.com/ntbosscher/gobase/er"
 	"github.com/ntbosscher/gobase/httpdefaults"
+	"github.com/ntbosscher/gobase/integrations/s3fs"
 	"github.com/ntbosscher/gobase/model"
 	"github.com/ntbosscher/gobase/model/squtil"
 	"github.com/ntbosscher/gobase/requestip"
@@ -47,6 +48,7 @@ func main() {
 	// restrict to internal users
 	router.Add("POST", "/api/product", todo, RoleInternal)
 	router.Add("PUT", "/api/product", todo, RoleInternal)
+	router.Add("POST", "/api/product/upload", uploadProduct, RoleInternal)
 
 	// api versioning (based on X-APIVersion header)
 	router.Add("POST", "/api/customer/create", r.Versioned(
@@ -80,6 +82,17 @@ const (
 )
 
 func getProducts(rq *res.Request) res.Responder {
+	return res.Todo()
+}
+
+func uploadProduct(rq *res.Request) res.Responder {
+	file := rq.MultipartFile("file")
+
+	s3fs.Upload(rq.Context(), []*s3fs.UploadInput{{
+		FileName:   file.Filename,
+		Key:        "product-file",
+		FileHeader: file,
+	}})
 	return res.Todo()
 }
 
