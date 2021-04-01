@@ -28,6 +28,7 @@ func HandleErrors(callback func(input *HandlerInput)) {
 			Message:           err.Error(),
 			SuggestedHttpCode: 500,
 			StackTrace:        string(debug.Stack()),
+			Error:             err,
 		})
 
 		return
@@ -37,6 +38,7 @@ func HandleErrors(callback func(input *HandlerInput)) {
 		Message:           cause.Error(),
 		SuggestedHttpCode: cause.Code,
 		StackTrace:        fmt.Sprintf("%+v", err),
+		Error:             err,
 	})
 }
 
@@ -44,6 +46,7 @@ type HandlerInput struct {
 	Message           string
 	SuggestedHttpCode int
 	StackTrace        string
+	Error             error
 }
 
 func CheckForDecode(err error) {
