@@ -49,6 +49,16 @@ func (l *Limiter) Take() error {
 	}
 }
 
+func (l *Limiter) IsLimited() error {
+	select {
+	case <-l.bucket:
+		l.bucket <- true
+		return nil
+	default:
+		return ErrRateLimited
+	}
+}
+
 var ErrRateLimited = errors.New("rate limited")
 
 func (l *Limiter) WaitTake(timeout time.Duration) error {
