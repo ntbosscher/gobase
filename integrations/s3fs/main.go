@@ -192,6 +192,16 @@ func GetPreSignedUploadURL(key string) (string, error) {
 	return rq.Presign(5 * time.Minute)
 }
 
+func Remove(key string) error {
+	s3svc := s3.New(sess())
+	_, err := s3svc.DeleteObject(&s3.DeleteObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+
+	return err
+}
+
 // there's a chrome bug that doesn't handle commas in Content-Disposition filenames
 // https://answers.nuxeo.com/general/q/d8348e07fe5e441183bae07dfda00e40/Comma-in-file-name-cause-problem-in-Chrome-Browser
 func sanitizeDownloadFileName(fileName string) string {
