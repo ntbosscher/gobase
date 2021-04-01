@@ -147,6 +147,15 @@ func Download(ctx context.Context, key string) ([]byte, error) {
 	return buf.Bytes(), err
 }
 
+func DownloadToWriter(ctx context.Context, key string, wr io.WriterAt) (int64, error) {
+	downloader := s3manager.NewDownloader(sess())
+
+	return downloader.DownloadWithContext(ctx, wr, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+}
+
 type DownloadType string
 
 const (
