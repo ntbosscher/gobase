@@ -63,6 +63,9 @@ func (w *Worker) loop(checkInterval time.Duration, middleware []Middleware) {
 		timer = tc.C
 	}
 
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, workerKey, w)
+
 	for {
 		value := 0
 
@@ -76,7 +79,7 @@ func (w *Worker) loop(checkInterval time.Duration, middleware []Middleware) {
 			value = 0
 		}
 
-		err := run(context.Background(), value)
+		err := run(ctx, value)
 		if err != nil {
 			<-time.After(10 * time.Second)
 		}
@@ -103,4 +106,12 @@ func (w *Worker) TriggerWithInput(ctx context.Context, input int) {
 	case w.signal <- input:
 	case <-ctx.Done():
 	}
+}
+
+type contextKey string
+
+const workerKey contextKey = "worker-key"
+
+func Current(ctx context.Context) *Worker {
+	return ctx.Value(workerKey).(*Worker)
 }
