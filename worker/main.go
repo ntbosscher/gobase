@@ -108,6 +108,18 @@ func (w *Worker) TriggerWithInput(ctx context.Context, input int) {
 	}
 }
 
+func WithTimeLimitMiddleware(limit time.Duration) Middleware {
+
+	return func(next Exec) Exec {
+		return func(ctx context.Context, input int) error {
+			ctx, cancel := context.WithTimeout(ctx, limit)
+			defer cancel()
+
+			return next(ctx, input)
+		}
+	}
+}
+
 type contextKey string
 
 const workerKey contextKey = "worker-key"

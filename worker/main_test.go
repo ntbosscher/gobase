@@ -47,3 +47,23 @@ func TestInterval(t *testing.T) {
 		t.Fatal("failed")
 	}
 }
+
+func TestTimeLimit(t *testing.T) {
+	var signal = make(chan int)
+	New("test", func(ctx context.Context, input int) error {
+		select {
+		case <-time.After(time.Second):
+			t.Fatal("should have timed out in the context")
+		case <-ctx.Done():
+		}
+
+		signal <- input
+		return nil
+	}, 10*time.Millisecond, WithTimeLimitMiddleware(100*time.Millisecond))
+
+	select {
+	case <-signal:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("failed")
+	}
+}
