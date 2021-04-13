@@ -31,7 +31,7 @@ type TemplateInput struct {
 }
 
 type Section struct {
-	Type   string // button or html
+	Type   string // button, big-button or html
 	Button ButtonDetails
 	HTML   template.HTML
 }
@@ -51,6 +51,16 @@ func SectionHTML(html string) *Section {
 func SectionButton(text string, url string) *Section {
 	return &Section{
 		Type: "button",
+		Button: ButtonDetails{
+			Text: text,
+			URL:  url,
+		},
+	}
+}
+
+func SectionBigButton(text string, url string) *Section {
+	return &Section{
+		Type: "big-button",
 		Button: ButtonDetails{
 			Text: text,
 			URL:  url,
