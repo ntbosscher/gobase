@@ -137,7 +137,7 @@ func ParseBackends(fileContents []byte) (File, []*ServerRow, error) {
 	for tokenizer.Scan() {
 		if upstreamBlock != nil {
 			var serversTmp []*ServerRow
-			upstreamBlock.rows, servers, err = parseUpstreamBlock(tokenizer.Text())
+			upstreamBlock.rows, serversTmp, err = parseUpstreamBlock(tokenizer.Text())
 			if err != nil {
 				return nil, nil, err
 			}
