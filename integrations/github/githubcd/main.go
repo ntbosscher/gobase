@@ -52,9 +52,8 @@ func (h *Handler) doUpdate() error {
 		return nil
 	}
 
-	// run async in case postPullScript triggers a process re-start
+	// run async so we can return the http request before this process get's killed
 	go func() {
-
 		if Verbose {
 			logger.Println(h.postPullScript)
 		}

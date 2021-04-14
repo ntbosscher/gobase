@@ -147,6 +147,22 @@ func performUpgrade(requestBody []byte, file nginx.File, servers []*nginx.Server
 			log.Println(resp.StatusCode, string(data))
 		}
 
+		log.Println(name, "delaying while client builds and updates it self...")
+		<-time.After(5 * time.Second)
+
+		timeout := time.Now().Add(30 * time.Second)
+		for time.Now().Before(timeout) {
+			resp, err := http.Get("http://" + name + "/")
+			if err != nil {
+				log.Println(name, "attempting...", err.Error())
+				<-time.After(1 * time.Second)
+				continue
+			}
+
+			log.Println(name, "got response", resp.StatusCode, "must be good to go")
+			break
+		}
+
 		log.Println(name, "restoring nginx config...")
 		for _, value := range values {
 			value.Status = ""
