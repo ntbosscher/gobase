@@ -1,6 +1,9 @@
 package random
 
-import "crypto/rand"
+import (
+	"crypto/rand"
+	"math/big"
+)
 
 func randomString(length int, charset string) (string, error) {
 	buf := make([]byte, length)
@@ -21,4 +24,16 @@ func randomString(length int, charset string) (string, error) {
 
 func GetAlphaNumericChars(length int) (string, error) {
 	return randomString(length, "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+}
+
+// Int returns a cryptographically random number between [min, max)
+func Int(min int, max int) (int, error) {
+
+	diff := max - min
+	value, err := rand.Int(rand.Reader, big.NewInt(int64(diff)))
+	if err != nil {
+		return 0, err
+	}
+
+	return min + int(value.Int64()), nil
 }

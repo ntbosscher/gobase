@@ -1,17 +1,12 @@
 package githubcd
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
-	"errors"
-	"github.com/ntbosscher/gobase/er"
-	"io/ioutil"
+	"bytes"
+	"github.com/ntbosscher/gobase/integrations/github/githubcd/githubcdutil"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
-	"strings"
 )
 
 var Verbose = false
@@ -30,25 +25,8 @@ func New(secret string, postPullScript string) *Handler {
 }
 
 func (h *Handler) validateSignature(r *http.Request) error {
-
-	sig := r.Header.Get("x-hub-signature-256")
-	sig = strings.TrimPrefix(sig, "sha256=")
-
-	hasher := hmac.New(sha256.New, []byte(h.secret))
-
-	request, err := ioutil.ReadAll(r.Body)
-	er.Check(err)
-
-	_, err = hasher.Write(request)
-	er.Check(err)
-
-	value := hex.EncodeToString(hasher.Sum(nil))
-
-	if value != sig {
-		return errors.New("invalid hash")
-	}
-
-	return nil
+	_, err := githubcdutil.Verify(h.secret, r)
+	return err
 }
 
 func (h *Handler) doUpdate() error {
@@ -67,6 +45,11 @@ func (h *Handler) doUpdate() error {
 
 	if Verbose {
 		logger.Println(string(output))
+	}
+
+	if bytes.Contains(output, []byte("Already up to date.")) {
+		logger.Println("No changes, skipping deployment script")
+		return nil
 	}
 
 	// run async in case postPullScript triggers a process re-start
