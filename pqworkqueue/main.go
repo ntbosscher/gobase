@@ -289,7 +289,6 @@ type Status struct {
 	CreatedAt   time.Time
 	StartedAt   nulls.Time
 	CompletedAt nulls.Time
-	Result      []byte
 }
 
 func GetStatus(ctx context.Context, id string) (*Status, error) {
@@ -305,8 +304,7 @@ func GetStatus(ctx context.Context, id string) (*Status, error) {
 		select 
 			id,
 			coalesce(rnk.position, 0) as "position",
-			created_at, started_at, completed_at,
-			result
+			created_at, started_at, completed_at
 		from pq_worker_queue r
 		left join (
 			select position
@@ -323,6 +321,12 @@ func GetStatus(ctx context.Context, id string) (*Status, error) {
 	`, queue, id)
 
 	return status, err
+}
+
+func GetResult(ctx context.Context, id string) ([]byte, error) {
+	result := []byte{}
+	err := model.QueryRowContext(ctx, `select result from pq_worker_queue where id = $1`, id).Scan(&result)
+	return result, err
 }
 
 func NewQueue(name string) *Queue {

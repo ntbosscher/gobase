@@ -56,12 +56,20 @@ func TestBasic(t *testing.T) {
 		}))
 
 		if status.CompletedAt.Valid {
-			if status.Result == nil {
+
+			var data []byte
+
+			er.Check(model.WithTx(context.Background(), func(ctx context.Context, tx *sqlx.Tx) error {
+				data, err = GetResult(ctx, id)
+				return err
+			}))
+
+			if data == nil {
 				t.Fatal("missing result")
 			}
 
-			if string(status.Result) != "result" {
-				t.Fatal("incorrect result", status.Result)
+			if string(data) != "result" {
+				t.Fatal("incorrect result", data)
 			}
 
 			break
