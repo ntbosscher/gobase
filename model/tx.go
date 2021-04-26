@@ -11,6 +11,7 @@ type txInfo struct {
 	commitCalled bool
 	traceId      string
 	tx           *sqlx.Tx
+	callbacks    []func()
 }
 
 func BeginTx(ctx context.Context, traceId string) (context.Context, func(), error) {
@@ -25,6 +26,7 @@ func BeginTx(ctx context.Context, traceId string) (context.Context, func(), erro
 		commitCalled: false,
 		tx:           tx,
 		traceId:      traceId,
+		callbacks:    []func(){},
 	})
 
 	cleanup := func() {
@@ -73,7 +75,16 @@ func Commit(ctx context.Context) error {
 
 	info.commitCalled = true
 	debugLogger().Println("commit", info.traceId)
-	return info.tx.Commit()
+	err := info.tx.Commit()
+	if err != nil {
+		return err
+	}
+
+	for _, callback := range info.callbacks {
+		callback()
+	}
+
+	return nil
 }
 
 func startTx(ctx context.Context) (*sqlx.Tx, error) {
