@@ -6,11 +6,10 @@ import (
 	"encoding/json"
 	"github.com/gobuffalo/nulls"
 	"github.com/gofrs/uuid"
-	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/jmoiron/sqlx"
-	"github.com/ntbosscher/gobase/env"
 	"github.com/ntbosscher/gobase/er"
 	"github.com/ntbosscher/gobase/model"
+	"github.com/ntbosscher/gobase/pqshared"
 	"github.com/pkg/errors"
 	"log"
 	"os"
@@ -20,19 +19,12 @@ import (
 
 var addListen chan *WorkerInfo
 
-var pool *pgxpool.Pool
-
 func init() {
 
 	addListen = make(chan *WorkerInfo)
 	var err error
 
-	pool, err = pgxpool.Connect(context.Background(), env.Require("CONNECTION_STRING"))
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	_, err = pool.Exec(context.Background(), `create table if not exists pq_worker_queue (
+	_, err = pqshared.Pool.Exec(context.Background(), `create table if not exists pq_worker_queue (
 		id text not null unique,
 		queue_name text not null,
 		job_arg json not null,
@@ -47,7 +39,7 @@ func init() {
 		log.Fatal("failed to setup worker table: ", err)
 	}
 
-	_, err = pool.Exec(context.Background(), `create index if not exists ix_pq_worker_queue_retain on pq_worker_queue (retain_until);`)
+	_, err = pqshared.Pool.Exec(context.Background(), `create index if not exists ix_pq_worker_queue_retain on pq_worker_queue (retain_until);`)
 	if err != nil {
 		log.Fatal("failed to setup worker table: ", err)
 	}
@@ -205,7 +197,7 @@ func cleaner() {
 var Logger = log.New(os.Stderr, "pqworkerqueue", log.Llongfile)
 
 func waitForNotification(ctx context.Context, callback func(queueName string)) {
-	conn, err := pool.Acquire(ctx)
+	conn, err := pqshared.Pool.Acquire(ctx)
 	if err != nil {
 		Logger.Println(err)
 		return
@@ -339,7 +331,7 @@ type Queue struct {
 
 // Notify triggers the workers to process the new jobs available
 func (q *Queue) Notify() error {
-	_, err := pool.Exec(context.Background(), `select pg_notify('pqworkerqueue', $1)`, q.name)
+	_, err := pqshared.Pool.Exec(context.Background(), `select pg_notify('pqworkerqueue', $1)`, q.name)
 	return err
 }
 
