@@ -80,7 +80,7 @@ func dbListener(ctx context.Context) {
 
 	conn, err := pqshared.Pool.Acquire(ctx)
 	if err != nil {
-		if err == context.Canceled {
+		if ctx.Err() == context.Canceled {
 			return
 		}
 
@@ -91,7 +91,7 @@ func dbListener(ctx context.Context) {
 	defer conn.Release()
 
 	if err := setupListens(ctx, conn); err != nil {
-		if err == context.Canceled {
+		if ctx.Err() == context.Canceled {
 			return
 		}
 
