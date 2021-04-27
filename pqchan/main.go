@@ -191,7 +191,7 @@ func Receive(ctx context.Context, name string) (chan json.RawMessage, error) {
 
 		defer close(channel)
 
-		for input := range mux.Receive(context.Background()) {
+		for input := range mux.Receive(ctx) {
 			select {
 			case channel <- input.(json.RawMessage):
 			case <-ctx.Done():
