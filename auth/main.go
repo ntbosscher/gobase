@@ -5,6 +5,7 @@ import (
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gobuffalo/nulls"
 	"math"
+	"unsafe"
 )
 
 type Minutes int
@@ -88,4 +89,21 @@ func HasRole(ctx context.Context, role TRole) bool {
 
 func SetUser(ctx context.Context, user *UserInfo) context.Context {
 	return context.WithValue(ctx, userKey, user)
+}
+
+// SplitRole expands the possibly combined role into it's individual couter parts
+// e.g RoleInternal = RoleUser | RoleSupervisor
+//     SplitRole(RoleInternal) => [RoleUser, RoleSupervisor]
+func SplitRole(role TRole) []TRole {
+	list := []TRole{}
+	nBits := int(unsafe.Sizeof(role) * 8)
+
+	for i := 0; i < nBits; i++ {
+		testRole := TRole(0x1 << i)
+		if role&testRole != 0 {
+			list = append(list, testRole)
+		}
+	}
+
+	return list
 }
