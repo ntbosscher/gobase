@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"github.com/ntbosscher/gobase/er"
 	"log"
 	"os"
@@ -39,9 +40,10 @@ func New(name string, exec Exec, checkInterval time.Duration, middleware ...Midd
 }
 
 func (w *Worker) loop(checkInterval time.Duration, middleware []Middleware) {
-	run := func(ctx context.Context, input int) error {
+	run := func(ctx context.Context, input int) (err error) {
 		defer er.HandleErrors(func(input *er.HandlerInput) {
 			Logger.Println("worker "+w.name, input.Message, input.StackTrace)
+			err = errors.New("worker panic: " + input.Message)
 		})
 
 		exec := w.exec
