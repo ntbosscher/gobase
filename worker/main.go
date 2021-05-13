@@ -110,6 +110,10 @@ func (w *Worker) TriggerWithInput(ctx context.Context, input int) {
 	}
 }
 
+func (w *Worker) Name() string {
+	return w.name
+}
+
 func WithTimeLimitMiddleware(limit time.Duration) Middleware {
 
 	return func(next Exec) Exec {
