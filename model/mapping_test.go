@@ -13,6 +13,7 @@ func TestSnakeCaseStructNameMapping(t *testing.T) {
 		"UserWorkshop":   "user_workshop",
 		"Transponder407": "transponder_407",
 		"Transponder4":   "transponder_4",
+		"NLunches":       "nlunches",
 	}
 
 	for input, expect := range tests {
