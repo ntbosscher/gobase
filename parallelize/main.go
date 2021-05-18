@@ -10,7 +10,7 @@ type info struct {
 	Error error
 }
 
-func Go(tasks ...func() error) []error {
+func Run(tasks ...func() error) []error {
 
 	done := make(chan info)
 

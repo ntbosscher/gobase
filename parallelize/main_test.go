@@ -10,7 +10,7 @@ func TestT(t *testing.T) {
 
 	start := time.Now()
 
-	result := Go(func() error {
+	result := Run(func() error {
 		<-time.After(100 * time.Millisecond)
 		return nil
 	}, func() error {
