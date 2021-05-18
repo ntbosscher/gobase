@@ -1,3 +1,5 @@
+// Worker is a easy way to run background jobs within the same process.
+// For multi-processed jobs, see pqworkerqueue
 package worker
 
 import (
