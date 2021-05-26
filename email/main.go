@@ -32,13 +32,15 @@ type TemplateInput struct {
 
 type Section struct {
 	Type   string // button, big-button or html
+	Width  string
 	Button ButtonDetails
 	HTML   template.HTML
 }
 
 type ButtonDetails struct {
-	Text string
-	URL  string
+	Text    string
+	URL     string
+	Variant string
 }
 
 func SectionHTML(html string) *Section {
@@ -48,14 +50,58 @@ func SectionHTML(html string) *Section {
 	}
 }
 
-func SectionButton(text string, url string) *Section {
+func Combine(input ...[]*Section) []*Section {
+	flattened := []*Section{}
+
+	for _, item := range input {
+		flattened = append(flattened, item...)
+	}
+
+	return flattened
+}
+
+func SectionRowCell(content *Section, width string) []*Section {
+	return []*Section{
+		{
+			Type:  "flex-item-start",
+			Width: width,
+		},
+		content,
+		{
+			Type: "flex-item-end",
+		},
+	}
+}
+
+func SectionRow(cellContents ...[]*Section) []*Section {
+	list := []*Section{{
+		Type: "flex-row-start",
+	}}
+
+	for _, item := range cellContents {
+		list = append(list, item...)
+	}
+
+	list = append(list, &Section{
+		Type: "flex-row-end",
+	})
+
+	return list
+}
+
+func SectionButtonVariant(text string, url string, variant string) *Section {
 	return &Section{
 		Type: "button",
 		Button: ButtonDetails{
-			Text: text,
-			URL:  url,
+			Text:    text,
+			URL:     url,
+			Variant: variant,
 		},
 	}
+}
+
+func SectionButton(text string, url string) *Section {
+	return SectionButtonVariant(text, url, "")
 }
 
 func SectionBigButton(text string, url string) *Section {

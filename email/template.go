@@ -182,23 +182,43 @@ var defaultTemplate = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" 
                                                             </tbody></table>
                                                         {{range .Sections}}
                                                         {{if eq .Type "button"}}
-                                                        <table border="0" cellpadding="0" cellspacing="0" class="module" data-role="module-button" data-type="button" role="module" style="table-layout:fixed;" width="100%" data-muid="9f229388-3506-4b95-bbdd-c48b0a8de0cb">
-                                                            <tbody>
-                                                            <tr>
-                                                                <td align="left" bgcolor="" class="outer-td" style="padding:5px 0px 5px 37px;">
-                                                                    <table border="0" cellpadding="0" cellspacing="0" class="wrapper-mobile" style="text-align:center;">
-                                                                        <tbody>
-                                                                        <tr>
-                                                                            <td align="center" bgcolor="#333333" class="inner-td" style="border-radius:6px; font-size:16px; text-align:left; background-color:inherit;">
-                                                                                <a href="{{.Button.URL}}" style="background-color:#333333; border:1px solid #333333; border-color:#333333; border-radius:6px; border-width:1px; color:#ffffff; display:inline-block; font-size:14px; font-weight:normal; letter-spacing:0px; line-height:normal; padding:12px 18px 12px 18px; text-align:center; text-decoration:none; border-style:solid;" target="_blank">{{.Button.Text}}</a>
-                                                                            </td>
-                                                                        </tr>
-                                                                        </tbody>
-                                                                    </table>
-                                                                </td>
-                                                            </tr>
-                                                            </tbody>
-                                                        </table>
+															{{if eq .Button.Variant "outlined"}}
+																<table border="0" cellpadding="0" cellspacing="0" class="module" data-role="module-button" data-type="button" role="module" style="table-layout:fixed;" width="100%" data-muid="9f229388-3506-4b95-bbdd-c48b0a8de0cb">
+																	<tbody>
+																	<tr>
+																		<td align="left" bgcolor="" class="outer-td" style="padding:5px 0px 5px 37px;">
+																			<table border="0" cellpadding="0" cellspacing="0" class="wrapper-mobile" style="text-align:center;">
+																				<tbody>
+																				<tr>
+																					<td align="center" bgcolor="#ffffff" class="inner-td" style="border-radius:6px; font-size:16px; text-align:left; background-color:inherit;">
+																						<a href="{{.Button.URL}}" style="background-color:#ffffff; border:1px solid #333333; border-color:#333333; border-radius:6px; border-width:1px; color:#333333; display:inline-block; font-size:14px; font-weight:normal; letter-spacing:0px; line-height:normal; padding:12px 18px 12px 18px; text-align:center; text-decoration:none; border-style:solid;" target="_blank">{{.Button.Text}}</a>
+																					</td>
+																				</tr>
+																				</tbody>
+																			</table>
+																		</td>
+																	</tr>
+																	</tbody>
+																</table>
+															{{else}}
+																<table border="0" cellpadding="0" cellspacing="0" class="module" data-role="module-button" data-type="button" role="module" style="table-layout:fixed;" width="100%" data-muid="9f229388-3506-4b95-bbdd-c48b0a8de0cb">
+																	<tbody>
+																	<tr>
+																		<td align="left" bgcolor="" class="outer-td" style="padding:5px 0px 5px 37px;">
+																			<table border="0" cellpadding="0" cellspacing="0" class="wrapper-mobile" style="text-align:center;">
+																				<tbody>
+																				<tr>
+																					<td align="center" bgcolor="#333333" class="inner-td" style="border-radius:6px; font-size:16px; text-align:left; background-color:inherit;">
+																						<a href="{{.Button.URL}}" style="background-color:#333333; border:1px solid #333333; border-color:#333333; border-radius:6px; border-width:1px; color:#ffffff; display:inline-block; font-size:14px; font-weight:normal; letter-spacing:0px; line-height:normal; padding:12px 18px 12px 18px; text-align:center; text-decoration:none; border-style:solid;" target="_blank">{{.Button.Text}}</a>
+																					</td>
+																				</tr>
+																				</tbody>
+																			</table>
+																		</td>
+																	</tr>
+																	</tbody>
+																</table>
+                                                        	{{end}}
                                                         {{else if eq .Type "big-button"}}
                                                             <table border="0" cellpadding="0" cellspacing="0" class="module" data-role="module-button" data-type="button" role="module" style="table-layout:fixed;" width="100%" data-muid="9f229388-3506-4b95-bbdd-c48b0a8de0cb">
                                                                 <tbody>
@@ -217,6 +237,19 @@ var defaultTemplate = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" 
                                                                 </tr>
                                                                 </tbody>
                                                             </table>
+														{{else if eq .Type "flex-row-start"}}
+															<table border="0" cellpadding="0" cellspacing="0" class="module" data-role="module-button" data-type="button" role="module" style="table-layout:fixed;" width="100%" data-muid="9f229388-3506-4b95-bbdd-c48b0a8de0cb">
+															<tbody>
+															<tr>
+														{{else if eq .Type "flex-row-end"}}
+															 <td></td><!-- push columns toward start of row -->
+															</tr>
+															</tbody>
+															</table>
+														{{else if eq .Type "flex-item-start"}}
+															<td style="width: {{.Width}};">
+														{{else if eq .Type "flex-item-end"}}
+															</td>
                                                         {{else}}
                                                         <table class="module" role="module" data-type="text" border="0" cellpadding="0" cellspacing="0" width="100%" style="table-layout: fixed;" data-muid="9dee0372-e8be-49a8-b196-353c0ce6f623">
                                                             <tbody>
