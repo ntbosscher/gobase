@@ -186,7 +186,7 @@ var defaultTemplate = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" 
 																<table border="0" cellpadding="0" cellspacing="0" class="module" data-role="module-button" data-type="button" role="module" style="table-layout:fixed;" width="100%" data-muid="9f229388-3506-4b95-bbdd-c48b0a8de0cb">
 																	<tbody>
 																	<tr>
-																		<td align="left" bgcolor="" class="outer-td" style="padding:5px 0px 5px 37px;">
+																		<td align="left" bgcolor="" class="outer-td" style="padding:5px 0px 5px {{.PaddingLeft}};">
 																			<table border="0" cellpadding="0" cellspacing="0" class="wrapper-mobile" style="text-align:center;">
 																				<tbody>
 																				<tr>
@@ -204,7 +204,7 @@ var defaultTemplate = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" 
 																<table border="0" cellpadding="0" cellspacing="0" class="module" data-role="module-button" data-type="button" role="module" style="table-layout:fixed;" width="100%" data-muid="9f229388-3506-4b95-bbdd-c48b0a8de0cb">
 																	<tbody>
 																	<tr>
-																		<td align="left" bgcolor="" class="outer-td" style="padding:5px 0px 5px 37px;">
+																		<td align="left" bgcolor="" class="outer-td" style="padding:5px 0px 5px {{.PaddingLeft}};">
 																			<table border="0" cellpadding="0" cellspacing="0" class="wrapper-mobile" style="text-align:center;">
 																				<tbody>
 																				<tr>
@@ -247,7 +247,7 @@ var defaultTemplate = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" 
 															</tbody>
 															</table>
 														{{else if eq .Type "flex-item-start"}}
-															<td style="width: {{.Width}};">
+															<td style="width: {{.Width}}; padding-left: {{.PaddingLeft}}">
 														{{else if eq .Type "flex-item-end"}}
 															</td>
                                                         {{else}}

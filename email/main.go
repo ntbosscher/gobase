@@ -18,6 +18,8 @@ func init() {
 	defaultFrom = env.Require("DEFAULT_EMAIL_FROM")
 }
 
+const defaultLeftPadding = "37px"
+
 type TemplateInput struct {
 	// text that shows in the preview of a user's inbox
 	PreHeader string
@@ -31,10 +33,11 @@ type TemplateInput struct {
 }
 
 type Section struct {
-	Type   string // button, big-button or html
-	Width  string
-	Button ButtonDetails
-	HTML   template.HTML
+	Type        string // button, big-button or html
+	Width       string
+	PaddingLeft string
+	Button      ButtonDetails
+	HTML        template.HTML
 }
 
 type ButtonDetails struct {
@@ -61,6 +64,8 @@ func Combine(input ...[]*Section) []*Section {
 }
 
 func SectionRowCell(content *Section, width string) []*Section {
+	content.PaddingLeft = "0px"
+
 	return []*Section{
 		{
 			Type:  "flex-item-start",
@@ -78,7 +83,11 @@ func SectionRow(cellContents ...[]*Section) []*Section {
 		Type: "flex-row-start",
 	}}
 
-	for _, item := range cellContents {
+	for i, item := range cellContents {
+		if i == 0 {
+			item[0].PaddingLeft = defaultLeftPadding
+		}
+
 		list = append(list, item...)
 	}
 
@@ -91,7 +100,8 @@ func SectionRow(cellContents ...[]*Section) []*Section {
 
 func SectionButtonVariant(text string, url string, variant string) *Section {
 	return &Section{
-		Type: "button",
+		Type:        "button",
+		PaddingLeft: defaultLeftPadding,
 		Button: ButtonDetails{
 			Text:    text,
 			URL:     url,
