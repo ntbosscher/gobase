@@ -65,15 +65,22 @@ func watcher() {
 	go w.addNewListeners()
 
 	for {
-		waitForNotification(context.Background(), func(queueName string) {
-			mightBeMore := true
+		waitForNotification(context.Background(), w.processWork)
 
-			for mightBeMore {
-				mightBeMore = w.startWork(queueName)
-			}
-		})
+		// delay re-setting up connection b/c this is either a network or infrastructure issue
+		<-time.After(1 * time.Second)
+	}
+}
 
-		time.After(1 * time.Second)
+func (w *watcherInfo) processWork(queueName string) {
+	defer er.HandleErrors(func(input *er.HandlerInput) {
+		Logger.Println(input.Error, input.StackTrace)
+	})
+
+	mightBeMore := true
+
+	for mightBeMore {
+		mightBeMore = w.startWork(queueName)
 	}
 }
 
@@ -100,10 +107,9 @@ func (w *watcherInfo) startWork(queueName string) (mightBeMore bool) {
 		if err != nil {
 			if err != sql.ErrNoRows {
 				Logger.Println("failed to get job:", err.Error())
-				return err
 			}
 
-			return nil
+			return err
 		}
 
 		exec := info.Callback
@@ -173,6 +179,8 @@ func (w *watcherInfo) addNewListeners() {
 		w.muListeningFor.Lock()
 		w.listeningFor[info.QueueName] = info
 		w.muListeningFor.Unlock()
+
+		go w.processWork(info.QueueName)
 	}
 }
 
