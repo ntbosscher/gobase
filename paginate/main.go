@@ -13,6 +13,7 @@ import (
 	"github.com/ntbosscher/gobase/model"
 	"github.com/ntbosscher/gobase/model/squtil"
 	"github.com/ntbosscher/gobase/res"
+	"reflect"
 	"regexp"
 	"strings"
 	"time"
@@ -72,6 +73,12 @@ func ParamsFromRequest(rq *res.Request) Config {
 	}
 }
 
+type resultProcessor func(row interface{})
+
+func ResultProcessor(callback func(row interface{})) Config {
+	return resultProcessor(callback)
+}
+
 var filterRegexp = regexp.MustCompile(`^(.*?)(=|<=|>=|<|>)(.*)$`)
 
 func decodeRequestFilter(value string) []Filter {
@@ -109,6 +116,7 @@ type queryConfig struct {
 	pageSize         int
 	downloadFileName string
 	filter           []Filter
+	resultProcessor  resultProcessor
 }
 
 func (q *queryConfig) decodeConfig(configList []Config) {
@@ -125,6 +133,8 @@ func (q *queryConfig) decodeConfig(configList []Config) {
 		case Paging:
 			q.page = v.Page
 			q.pageSize = v.PageSize
+		case resultProcessor:
+			q.resultProcessor = v
 		case DownloadFileName:
 			q.downloadFileName = string(v)
 		case Filter:
@@ -231,11 +241,35 @@ func Query(ctx context.Context, listDest interface{}, baseQuery squirrel.SelectB
 
 	squtil.MustSelectContext(ctx, listDest, query)
 
+	if cfg.resultProcessor != nil {
+		processResults(listDest, cfg.resultProcessor)
+	}
+
 	if isDownload {
 		return DownloadResponse(listDest, downloadFileName)
 	}
 
 	return Response(listDest, totalCount)
+}
+
+func processResults(list interface{}, processor resultProcessor) {
+	value := reflect.ValueOf(list)
+	if value.Kind() != reflect.Ptr {
+		er.Throw("expected list to be a pointer")
+	}
+
+	if value.IsNil() {
+		er.Throw("expected list to be not nil")
+	}
+
+	slice := value.Elem()
+	if slice.Kind() != reflect.Slice {
+		er.Throw("expected pointer to slice")
+	}
+
+	for i := 0; i < slice.Len(); i++ {
+		processor(slice.Index(i).Interface())
+	}
 }
 
 func applyPager(query squirrel.SelectBuilder, cfg *queryConfig) squirrel.SelectBuilder {
