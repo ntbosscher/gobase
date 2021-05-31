@@ -93,3 +93,13 @@ func TestSetTime(t *testing.T) {
 		t.Error("invalid sec", sec)
 	}
 }
+
+func TestBusinessDaysBetween(t *testing.T) {
+	src := time.Date(2000, 01, 01, 0, 0, 0, 0, time.UTC)
+	now := time.Date(2000, 01, 05, 0, 0, 0, 0, time.UTC)
+	ct := BusinessDaysBetween(src, now)
+
+	if ct != 2 {
+		t.Fatal("expected 2")
+	}
+}

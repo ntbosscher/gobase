@@ -67,6 +67,26 @@ func AddBusinessDays(when time.Time, n int, holidays ...Date) time.Time {
 	return dt.AddDays(when, n)
 }
 
+func BusinessDaysBetween(when time.Time, now time.Time, holidays ...Date) int {
+	dt := &DateTraveler{
+		Holidays:     holidays,
+		BusinessDays: true,
+	}
+
+	ct := -1
+
+	for when.Before(now) {
+		when = dt.AddDays(when, 1)
+		ct++
+	}
+
+	if ct == -1 {
+		return 0
+	}
+
+	return ct
+}
+
 // ScheduleJob runs the callback on the interval given
 // Panics within the callback are logged but do not stop the interval processor
 func ScheduleJob(interval time.Duration, callback func()) {
