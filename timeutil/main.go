@@ -16,8 +16,15 @@ type DateTraveler struct {
 // AddDays adds n days to the date skipping holidays and business days (if enabled)
 // *note: time of day is preserved
 func (c *DateTraveler) AddDays(when time.Time, n int) time.Time {
+	direction := 1
+
+	if n < 0 {
+		direction = -1
+		n = -1 * n
+	}
+
 	for i := 0; i < n; {
-		when = when.AddDate(0, 0, 1)
+		when = when.AddDate(0, 0, direction)
 		if c.Contains(when) {
 			i++
 		}

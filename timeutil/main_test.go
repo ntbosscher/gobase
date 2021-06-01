@@ -66,6 +66,27 @@ func TestCalendar3(t *testing.T) {
 	}
 }
 
+func TestCalendar4(t *testing.T) {
+	bd := &DateTraveler{
+		BusinessDays: true,
+		Holidays: []Date{
+			{Y: 2020, M: 11, D: 11},
+		},
+	}
+
+	tm := time.Date(2020, 11, 10, 2, 3, 4, 5, time.UTC)
+	tm = bd.AddDays(tm, -2)
+
+	y, m, d := tm.Date()
+	if y != 2020 || m != 11 || d != 6 {
+		t.Fatal("should be nov 6th", tm.String())
+	}
+
+	if tm.Hour() != 2 {
+		t.Fatal("should have preserved hours")
+	}
+}
+
 func TestNextWeekday(t *testing.T) {
 	for i := time.Sunday; i <= time.Saturday; i++ {
 		src := time.Date(2000, 01, 01+int(i), 0, 0, 0, 0, time.UTC)
