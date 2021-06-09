@@ -12,6 +12,12 @@ import (
 	"strings"
 )
 
+var sourceMapToken = ""
+
+func init() {
+	sourceMapToken = env.Optional("REACT_SOURCE_MAP_TOKEN", "")
+}
+
 func ReactApp(dir string, testNodeServerAddr string) http.Handler {
 	return &reactRouter{
 		fileServer:         http.FileServer(http.Dir(dir)),
@@ -50,7 +56,33 @@ func (router *reactRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "max-age=31536000")
 	}
 
+	if strings.HasSuffix(r.URL.Path, ".js.map") {
+		if !hasAccessToSourceMaps(r) {
+			http.Error(w, "You don't have access to source maps.", http.StatusForbidden)
+			return
+		}
+	}
+
 	router.fileServer.ServeHTTP(w, r)
+}
+
+func hasAccessToSourceMaps(r *http.Request) bool {
+	if sourceMapToken == "" {
+		return true
+	}
+
+	c, err := r.Cookie("react-source-map-token")
+	if err == nil {
+		if c.Value == sourceMapToken {
+			return true
+		}
+	}
+
+	if r.Header.Get("X-REACT_SOURCE_MAP_TOKEN") == c.Value {
+		return true
+	}
+
+	return false
 }
 
 func (router *reactRouter) serveCreateReactApp(w http.ResponseWriter, r *http.Request) {
