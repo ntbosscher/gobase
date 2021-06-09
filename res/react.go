@@ -78,7 +78,7 @@ func hasAccessToSourceMaps(r *http.Request) bool {
 		}
 	}
 
-	if r.Header != nil && r.Header.Get("X-REACT_SOURCE_MAP_TOKEN") == c.Value {
+	if r.Header.Get("X-REACT_SOURCE_MAP_TOKEN") == sourceMapToken {
 		return true
 	}
 
