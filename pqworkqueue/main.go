@@ -117,7 +117,7 @@ func (w *watcherInfo) startWork(queueName string) (mightBeMore bool) {
 			exec = item(exec)
 		}
 
-		result := exec(context.Background(), id, message)
+		result := exec(ctx, id, message)
 		err = model.ExecContext(ctx, `
 			update pq_worker_queue set
 				result = $1,
@@ -231,8 +231,14 @@ func waitForNotification(ctx context.Context, callback func(queueName string)) {
 }
 
 // Worker processes the job and can return a byte slice to be stored as a result
+// Note: ctx is executed within a model.Tx
 type Worker = func(ctx context.Context, id string, input json.RawMessage) []byte
 type Middleware = func(next Worker) Worker
+
+// NewWorkerGroup created a new group of workers to process the queue
+func NewWorkerGroup(info *WorkerInfo) {
+	StartWorkers(info)
+}
 
 func StartWorkers(info *WorkerInfo) {
 	if info.NConcurrent == 0 {
