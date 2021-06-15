@@ -349,6 +349,17 @@ func (q *Queue) Notify() error {
 	return err
 }
 
+// MustAdd pushes an item onto the queue and panics if there's a failure
+// ctx must be called withing a model-transaction context
+// arg must be json-encodable
+// The item will be added using the model package, so it is transaction safe
+func (q *Queue) MustAdd(ctx context.Context, arg interface{}) string {
+	id, err := q.Add(ctx, arg)
+	er.Check(err)
+
+	return id
+}
+
 // Add pushes an item onto the queue.
 // ctx must be called withing a model-transaction context
 // arg must be json-encodable
