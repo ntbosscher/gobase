@@ -52,6 +52,15 @@ func Company(ctx context.Context) int {
 	return Current(ctx).CompanyID
 }
 
+func CompanyNull(ctx context.Context) nulls.Int {
+	id := Company(ctx)
+	if id <= 0 {
+		return nulls.Int{}
+	}
+
+	return nulls.NewInt(id)
+}
+
 func UserNull(ctx context.Context) nulls.Int {
 	if !IsAuthenticated(ctx) {
 		return nulls.Int{}
