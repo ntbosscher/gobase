@@ -23,7 +23,7 @@ func Middleware() r.Middleware {
 	}
 }
 
-func Version(ctx context.Context) *httpversion.Ver {
+func Current(ctx context.Context) *httpversion.Ver {
 	value := ctx.Value(versionCtxKey)
 	if value == nil {
 		return nil
