@@ -1,9 +1,6 @@
 package httpversion
 
 import (
-	"context"
-	"github.com/ntbosscher/gobase/res"
-	"github.com/ntbosscher/gobase/res/r"
 	"net/http"
 	"strconv"
 	"strings"
@@ -15,20 +12,8 @@ func Parse(r *http.Request) string {
 	return r.Header.Get(VersionHeaderName)
 }
 
-type versionKeyType string
-
-const versionCtxKey versionKeyType = "version"
-
-func Middleware() r.Middleware {
-	return func(router *r.Router, method string, path string, handler res.HandlerFunc2) res.HandlerFunc2 {
-		return func(rq *res.Request) res.Responder {
-			req := rq.Request()
-			ctx := context.WithValue(req.Context(), versionCtxKey, NewVer(Parse(req)))
-			req = req.WithContext(ctx)
-
-			return handler(rq)
-		}
-	}
+func FromRequest(r *http.Request) string {
+	return Parse(r)
 }
 
 type Ver struct {
@@ -68,13 +53,4 @@ func (v *Ver) GtOrEq(other *Ver) bool {
 	}
 
 	return true
-}
-
-func Version(ctx context.Context) *Ver {
-	value := ctx.Value(versionCtxKey)
-	if value == nil {
-		return nil
-	}
-
-	return value.(*Ver)
 }
