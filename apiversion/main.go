@@ -58,6 +58,10 @@ func (v *Ver) GtOrEq(other *Ver) bool {
 		}
 	}
 
+	if len(v.Parts) == 0 && len(other.Parts) > 0 {
+		return false
+	}
+
 	return true
 }
 
