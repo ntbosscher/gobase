@@ -65,6 +65,10 @@ func (v *Ver) GtOrEq(other *Ver) bool {
 	return true
 }
 
+func (v *Ver) Lt(other *Ver) bool {
+	return !v.GtOrEq(other)
+}
+
 type versionKeyType string
 
 const versionCtxKey versionKeyType = "version"
