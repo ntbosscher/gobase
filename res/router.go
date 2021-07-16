@@ -181,10 +181,6 @@ func (r *Request) Context() context.Context {
 	return r.req.Context()
 }
 
-func (r *Request) SetContext(ctx context.Context) {
-	r.req = r.req.WithContext(ctx)
-}
-
 func (r *Request) Writer() http.ResponseWriter {
 	return r.wr
 }
@@ -298,5 +294,5 @@ func (r *Request) MustParseJSON(result interface{}) {
 }
 
 func (r *Request) APIVersion() string {
-	return httpversion.Parse(r.Request())
+	return apiversion.Parse(r.Request())
 }
