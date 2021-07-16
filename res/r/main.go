@@ -178,7 +178,7 @@ func Versioned(versionedHandlers ...VersionedHandler) Middleware {
 		}
 
 		return func(rq *res.Request) res.Responder {
-			version := rq.APIVersion()
+			version := rq.APIVersion().String()
 			for _, handler := range versionedHandlers {
 				if handler.version == version {
 					return handler.value(rq)

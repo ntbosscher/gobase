@@ -23,6 +23,10 @@ type Ver struct {
 	Parts []int
 }
 
+func (v *Ver) String() string {
+	return v.Value
+}
+
 func NewVer(value string) *Ver {
 	ver := &Ver{Value: value}
 	parts := strings.Split(value, ".")

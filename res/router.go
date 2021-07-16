@@ -3,8 +3,8 @@ package res
 import (
 	"context"
 	"github.com/gorilla/mux"
+	"github.com/ntbosscher/gobase/apiversion"
 	"github.com/ntbosscher/gobase/er"
-	"github.com/ntbosscher/gobase/httpversion"
 	"github.com/ntbosscher/gobase/integrations/github/githubcd"
 	"github.com/ntbosscher/gobase/strs"
 	"mime/multipart"
@@ -293,6 +293,6 @@ func (r *Request) MustParseJSON(result interface{}) {
 	er.CheckForDecode(err)
 }
 
-func (r *Request) APIVersion() string {
-	return apiversion.Parse(r.Request())
+func (r *Request) APIVersion() *apiversion.Ver {
+	return apiversion.Current(r.Context())
 }
