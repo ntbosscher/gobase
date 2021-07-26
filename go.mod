@@ -12,6 +12,7 @@ require (
 	github.com/gobuffalo/nulls v0.4.0
 	github.com/gocarina/gocsv v0.0.0-20201103164230-b291445e0dd2
 	github.com/gofrs/uuid v3.2.0+incompatible
+	github.com/golang-jwt/jwt v3.2.1+incompatible
 	github.com/gorilla/mux v1.7.4
 	github.com/gorilla/sessions v1.1.1
 	github.com/gorilla/websocket v1.4.2

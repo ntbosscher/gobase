@@ -2,8 +2,8 @@ package auth
 
 import (
 	"context"
-	"github.com/dgrijalva/jwt-go"
 	"github.com/gobuffalo/nulls"
+	"github.com/golang-jwt/jwt"
 	"math"
 	"unsafe"
 )

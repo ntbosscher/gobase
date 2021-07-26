@@ -1,7 +1,7 @@
 package httpauth
 
 import (
-	"github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt"
 	"github.com/ntbosscher/gobase/auth"
 	"testing"
 	"time"

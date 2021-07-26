@@ -3,7 +3,7 @@ package httpauth
 import (
 	"context"
 	"errors"
-	"github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt"
 	"github.com/ntbosscher/gobase/auth"
 	"github.com/ntbosscher/gobase/auth/httpauth/oauth"
 	"github.com/ntbosscher/gobase/env"
