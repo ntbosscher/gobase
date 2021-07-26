@@ -22,6 +22,15 @@ type WsConn struct {
 }
 
 func (w *WsConn) HasMessage() <-chan bool {
+	if len(w.incoming) > 0 {
+		go func() {
+			select {
+			case w.notifyHasMessage <- true:
+			case <-time.After(100 * time.Millisecond):
+			}
+		}()
+	}
+
 	return w.notifyHasMessage
 }
 
