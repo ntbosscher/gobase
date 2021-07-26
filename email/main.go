@@ -30,6 +30,7 @@ type TemplateInput struct {
 	Title          template.HTML
 	Sections       []*Section
 	ContactAddress []string
+	FullWidth      bool
 }
 
 type Section struct {

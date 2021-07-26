@@ -139,7 +139,7 @@ var defaultTemplate = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" 
                                             <center>
                                                 <table><tr><td width="600">
                                             <![endif]-->
-                                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; max-width:600px;" align="center">
+                                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; {{if .FullWidth}}padding-left: 10px; padding-right: 10px;{{else}}max-width:600px;{{end}}" align="center">
                                                 <tr>
                                                     <td role="modules-container" style="padding:0px 0px 0px 0px; color:#516775; text-align:left;" bgcolor="#ffffff" width="100%" align="left"><table class="module preheader preheader-hide" role="module" data-type="preheader" border="0" cellpadding="0" cellspacing="0" width="100%" style="display: none !important; mso-hide: all; visibility: hidden; opacity: 0; color: transparent; height: 0; width: 0;">
                                                             <tr>
@@ -157,7 +157,7 @@ var defaultTemplate = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" 
                                                         </table><table class="wrapper" role="module" data-type="image" border="0" cellpadding="0" cellspacing="0" width="100%" style="table-layout: fixed;" data-muid="qa8oMphYHuL7xyQrTVscgD">
                                                             <tbody><tr>
                                                                 <td style="font-size:6px; line-height:10px; padding:30px 0px 20px 30px;" valign="top" align="left">
-                                                                    <img class="max-width" border="0" style="display:block; color:#000000; text-decoration:none; font-family:Helvetica, arial, sans-serif; font-size:16px; max-width:30% !important; width:30%; height:auto !important;" src="{{.Logo}}" alt="Logo Image" width="180" data-responsive="true" data-proportionally-constrained="false">
+                                                                    <img class="max-width" border="0" style="display:block; color:#000000; text-decoration:none; font-family:Helvetica, arial, sans-serif; font-size:16px; max-width:30% !important; height:auto !important;" src="{{.Logo}}" alt="Logo Image" width="180" data-responsive="true" data-proportionally-constrained="false">
                                                                 </td>
                                                             </tr>
                                                             </tbody></table><table class="module" role="module" data-type="divider" border="0" cellpadding="0" cellspacing="0" width="100%" style="table-layout: fixed;" data-muid="66c75225-263a-42da-9476-dfe980e45d26">

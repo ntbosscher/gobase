@@ -11,6 +11,7 @@ func TestTemplate(t *testing.T) {
 		PreHeader: "pre-header-text",
 		Logo:      "/logo.png",
 		Title:     "Hello World",
+		FullWidth: true,
 		Sections: Combine([]*Section{
 			SectionHTML(`hey everyone,
 we're doing this cool thing we want to talk about... blah, blah, blah'`),
