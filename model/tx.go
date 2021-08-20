@@ -88,7 +88,7 @@ func Commit(ctx context.Context) error {
 }
 
 func startTx(ctx context.Context) (*sqlx.Tx, error) {
-	tx, err := db.BeginTxx(ctx, nil)
+	tx, err := getDb(ctx).BeginTxx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}

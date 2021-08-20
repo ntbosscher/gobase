@@ -18,7 +18,7 @@ func ExecContext(ctx context.Context, query string, args ...interface{}) error {
 // For your postgres insert query, be sure to include "returning <id-column>"
 func Insert(ctx context.Context, query string, args ...interface{}) (id int64, err error) {
 
-	if dbType == "postgres" {
+	if defaultDbType == "postgres" {
 		err = Tx(ctx).QueryRowContext(ctx, query, args...).Scan(&id)
 		if err != nil {
 			verboseLog(err, query, args...)

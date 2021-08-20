@@ -18,7 +18,14 @@ import (
 //   mapper("ContactPerson") // contactPerson
 //
 func SetStructNameMapping(mapper func(structCol string) (colName string)) {
-	db.MapperFunc(mapper)
+	muAll.RLock()
+	defer muAll.RUnlock()
+
+	defaultDb.MapperFunc(mapper)
+
+	for _, db := range otherDbs {
+		db.MapperFunc(mapper)
+	}
 }
 
 func SnakeCaseStructNameMapping(structCol string) string {
