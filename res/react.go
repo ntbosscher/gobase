@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"strings"
 )
 
@@ -18,18 +19,42 @@ func init() {
 	sourceMapToken = env.Optional("REACT_SOURCE_MAP_TOKEN", "")
 }
 
-func ReactApp(dir string, testNodeServerAddr string) http.Handler {
-	return &reactRouter{
+type Config interface{}
+
+type reactIndexFile func(r *http.Request) string
+
+func ReactCustomIndexFile(fx func(r *http.Request) string) Config {
+	return reactIndexFile(fx)
+}
+
+func ReactApp(dir string, testNodeServerAddr string, cfg ...Config) http.Handler {
+
+	rr := &reactRouter{
 		fileServer:         http.FileServer(http.Dir(dir)),
 		staticDir:          dir,
 		testNodeServerAddr: testNodeServerAddr,
+		indexFile: func(r *http.Request) string {
+			return "index.html"
+		},
 	}
+
+	for _, item := range cfg {
+		switch value := item.(type) {
+		case reactIndexFile:
+			rr.indexFile = value
+		default:
+			log.Println("unknown ReactApp option with type " + reflect.TypeOf(item).String())
+		}
+	}
+
+	return rr
 }
 
 type reactRouter struct {
 	fileServer         http.Handler
 	staticDir          string
 	testNodeServerAddr string
+	indexFile          reactIndexFile
 }
 
 func (router *reactRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -45,7 +70,7 @@ func (router *reactRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// if it isn't a static file, serve up index.html
 	if is404 || r.URL.Path == "/" {
-		defaultFile := filepath.Join(router.staticDir, "index.html")
+		defaultFile := filepath.Join(router.staticDir, router.indexFile(r))
 		NoCacheFunc(w, r)
 		http.ServeFile(w, r, defaultFile)
 		return
