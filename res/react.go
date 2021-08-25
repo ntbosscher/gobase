@@ -19,15 +19,15 @@ func init() {
 	sourceMapToken = env.Optional("REACT_SOURCE_MAP_TOKEN", "")
 }
 
-type Config interface{}
+type ReactConfig interface{}
 
 type reactIndexFile func(r *http.Request) string
 
-func ReactCustomIndexFile(fx func(r *http.Request) string) Config {
+func ReactCustomIndexFile(fx func(r *http.Request) string) ReactConfig {
 	return reactIndexFile(fx)
 }
 
-func ReactApp(dir string, testNodeServerAddr string, cfg ...Config) http.Handler {
+func ReactApp(dir string, testNodeServerAddr string, cfg ...ReactConfig) http.Handler {
 
 	rr := &reactRouter{
 		fileServer:         http.FileServer(http.Dir(dir)),

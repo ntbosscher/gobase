@@ -92,8 +92,8 @@ func (rt *Router) StaticFileDir(urlPrefix string, srcDir string) {
 // - ReactApp serves index.html on all not-found routes (to support virtual routing)
 // - In testing mode (environment variable TEST=true) reverse proxies to create-react-app's node server on port given
 //
-func (rt *Router) ReactApp(urlPrefix string, srcDir string, testNodeServerAddr string) {
-	react := ReactApp(srcDir, testNodeServerAddr)
+func (rt *Router) ReactApp(urlPrefix string, srcDir string, testNodeServerAddr string, cfg ...ReactConfig) {
+	react := ReactApp(srcDir, testNodeServerAddr, cfg...)
 
 	rt.next.NotFoundHandler = funcToHttpServer(func(writer http.ResponseWriter, request *http.Request) {
 		if strings.HasPrefix(request.URL.Path, urlPrefix) {
