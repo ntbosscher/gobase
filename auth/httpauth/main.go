@@ -304,7 +304,12 @@ func refreshHandler(config *Config) res.HandlerFunc2 {
 
 		if config.ValidateActiveUser != nil {
 			if err := config.ValidateActiveUser(rq.Context(), claims); err != nil {
-				return res.Redirect(strs.Coalesce(config.LogoutPath, defaultLogoutEndpoint))
+				// logout the user if using cookie authentication rather than redirecting to the logout page
+				// b/c some applications will redirect the user to the landing page when hitting the logout
+				// endpoint. This isn't desirable for api-access types.
+				removeCookies(rq, config)
+
+				return res.AppError("Access denied: " + err.Error())
 			}
 		}
 
@@ -424,22 +429,26 @@ func createAccessToken(user *auth.UserInfo, lifetime time.Duration) (token strin
 	return
 }
 
+func removeCookies(rq *res.Request, config *Config) {
+	http.SetCookie(rq.Writer(), &http.Cookie{
+		Secure: !env.IsTesting,
+		Name:   config.getAccessTokenCookieName(),
+		MaxAge: -1,
+		Path:   "/",
+	})
+
+	http.SetCookie(rq.Writer(), &http.Cookie{
+		Secure: !env.IsTesting,
+		Name:   config.getRefreshTokenCookieName(),
+		MaxAge: -1,
+		Path:   "/",
+	})
+}
+
 func logoutHandler(config *Config) res.HandlerFunc2 {
 	return func(rq *res.Request) res.Responder {
 
-		http.SetCookie(rq.Writer(), &http.Cookie{
-			Secure: !env.IsTesting,
-			Name:   config.getAccessTokenCookieName(),
-			MaxAge: -1,
-			Path:   "/",
-		})
-
-		http.SetCookie(rq.Writer(), &http.Cookie{
-			Secure: !env.IsTesting,
-			Name:   config.getRefreshTokenCookieName(),
-			MaxAge: -1,
-			Path:   "/",
-		})
+		removeCookies(rq, config)
 
 		if config.LogoutRedirectTo == "" {
 			return res.Redirect("/")
