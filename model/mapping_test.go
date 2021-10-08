@@ -7,13 +7,14 @@ import (
 func TestSnakeCaseStructNameMapping(t *testing.T) {
 
 	tests := map[string]string{
-		"ID":             "id",
-		"UserID":         "user_id",
-		"User":           "user",
-		"UserWorkshop":   "user_workshop",
-		"Transponder407": "transponder_407",
-		"Transponder4":   "transponder_4",
-		"NLunches":       "nlunches",
+		"ID":               "id",
+		"UserID":           "user_id",
+		"User":             "user",
+		"UserWorkshop":     "user_workshop",
+		"Transponder407":   "transponder_407",
+		"Transponder4":     "transponder_4",
+		"Transponder4Free": "transponder_4_free",
+		"NLunches":         "nlunches",
 	}
 
 	for input, expect := range tests {

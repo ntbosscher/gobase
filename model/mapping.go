@@ -36,25 +36,31 @@ func SnakeCaseStructNameMapping(structCol string) string {
 
 	src := []rune(structCol)
 	var dst []rune
-	lastIsLower := false
 
 	for i, c := range src {
 		if i == 0 {
-			lastIsLower = unicode.IsLower(c)
 			dst = append(dst, unicode.ToLower(c))
 			continue
 		}
 
-		if unicode.IsUpper(c) || unicode.IsNumber(c) {
-			if lastIsLower {
+		if unicode.IsUpper(c) {
+			if unicode.IsLower(src[i-1]) || unicode.IsDigit(src[i-1]) {
 				dst = append(dst, '_')
 			}
+
 			dst = append(dst, unicode.ToLower(c))
-			lastIsLower = false
 			continue
 		}
 
-		lastIsLower = true
+		if unicode.IsDigit(c) {
+			if !unicode.IsDigit(src[i-1]) {
+				dst = append(dst, '_')
+			}
+
+			dst = append(dst, c)
+			continue
+		}
+
 		dst = append(dst, c)
 	}
 
