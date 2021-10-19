@@ -110,6 +110,10 @@ func Parse(src string) (Cents, error) {
 			parts[1] = parts[1][0:2]
 		}
 
+		if len(parts[1]) == 1 {
+			parts[1] = parts[1] + "0"
+		}
+
 		cents, err := strconv.Atoi(parts[1])
 		if err != nil {
 			return 0, fmt.Errorf("invalid currency format for string '%s'", src)

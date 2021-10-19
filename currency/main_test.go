@@ -32,6 +32,15 @@ func TestParse(t *testing.T) {
 	if c != 200 {
 		t.Fatal("invalid 2")
 	}
+
+	c, err = Parse("2.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if c != 210 {
+		t.Fatal("invalid 2.1")
+	}
 }
 
 func TestCents_UnmarshalJSON(t *testing.T) {
