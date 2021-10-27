@@ -1,8 +1,10 @@
 package modelutil
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/csv"
 	"fmt"
 	"github.com/Masterminds/squirrel"
 	"github.com/jmoiron/sqlx"
@@ -69,6 +71,17 @@ func SelectTable(ctx context.Context, query string, args ...interface{}) (*Table
 	})
 
 	return table, err
+}
+
+func (t *Table) ToCSV() []byte {
+	buf := &bytes.Buffer{}
+	c := csv.NewWriter(buf)
+
+	_ = c.Write(t.Headers)
+	_ = c.WriteAll(t.Rows)
+
+	c.Flush()
+	return buf.Bytes()
 }
 
 type stringScanner struct {
