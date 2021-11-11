@@ -21,7 +21,7 @@ var ignoreErrorLog ErrorLogFilterer
 type ErrorLogFilterer func(responseCode int, responseBody interface{}, request *http.Request) bool
 
 func init() {
-	extra.SetNamingStrategy(jsonRenameKeysToCamelCase)
+	extra.SetNamingStrategy(JsonRenameKeysToCamelCase)
 	SetErrorResponseLogging(ioutil.Discard)
 	IgnoreErrorLogFor(func(responseCode int, responseBody interface{}, request *http.Request) bool {
 		return false // log all errors
@@ -42,7 +42,7 @@ func IgnoreErrorLogFor(callback ErrorLogFilterer) {
 	ignoreErrorLog = callback
 }
 
-func jsonRenameKeysToCamelCase(key string) string {
+func JsonRenameKeysToCamelCase(key string) string {
 
 	if len(key) == 0 {
 		return key
