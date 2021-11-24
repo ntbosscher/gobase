@@ -15,7 +15,12 @@ func init() {
 
 	IsUnitTest = os.Getenv("UNIT_TEST") != ""
 
-	err := godotenv.Load(envSearch()...)
+	searches := autoEnvLocation()
+	if os.Getenv("ENV_FILE") != "" {
+		searches = append(searches, os.Getenv("ENV_FILE"))
+	}
+
+	err := godotenv.Load(searches...)
 	if err != nil {
 
 		if IsUnitTest {
@@ -30,7 +35,7 @@ func init() {
 	IsTesting = os.Getenv("TEST") == "true"
 }
 
-func envSearch() []string {
+func autoEnvLocation() []string {
 
 	search := []string{".env"}
 
