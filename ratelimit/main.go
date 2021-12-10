@@ -1,6 +1,7 @@
 package ratelimit
 
 import (
+	"context"
 	"errors"
 	"time"
 )
@@ -46,6 +47,15 @@ func (l *Limiter) Take() error {
 		return nil
 	default:
 		return ErrRateLimited
+	}
+}
+
+func (l *Limiter) TakeContext(ctx context.Context) error {
+	select {
+	case <-l.bucket:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
