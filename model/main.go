@@ -23,18 +23,26 @@ var otherDbs = map[string]*sqlx.DB{}
 
 func init() {
 	defaultDbType = env.Optional("DB_TYPE", "postgres")
+	skipInitConnect := env.OptionalBool("DB_NO_CONNECT_ON_INIT", false)
 
-	if !env.IsUnitTest {
-		var err error
-
-		defaultDb, err = createConnection(defaultDbType, env.Require("CONNECTION_STRING"))
-		if err != nil {
-			err = errors.New(err.Error() + ": check the environment value for CONNECTION_STRING")
-			log.Fatal(err)
-		}
-
-		otherDbs[DefaultConnectionKey] = defaultDb
+	if env.IsUnitTest {
+		skipInitConnect = true
 	}
+
+	if skipInitConnect {
+		return
+	}
+
+	var err error
+
+	defaultDb, err = createConnection(defaultDbType, env.Require("CONNECTION_STRING"))
+	if err != nil {
+		err = errors.New(err.Error() + ": check the environment value for CONNECTION_STRING")
+		log.Fatal(err)
+	}
+
+	otherDbs[DefaultConnectionKey] = defaultDb
+
 }
 
 // AddConnection adds additional database connections that can be used by this package.
