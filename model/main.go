@@ -42,7 +42,6 @@ func init() {
 	}
 
 	otherDbs[DefaultConnectionKey] = defaultDb
-
 }
 
 // AddConnection adds additional database connections that can be used by this package.
@@ -58,6 +57,10 @@ func AddConnection(key string, dbType string, connectionString string) error {
 	db, err := createConnection(dbType, connectionString)
 	if err != nil {
 		return err
+	}
+
+	if defaultDb == nil || key == DefaultConnectionKey {
+		defaultDb = db
 	}
 
 	otherDbs[key] = db
