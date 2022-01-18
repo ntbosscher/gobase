@@ -265,6 +265,10 @@ func (r *Request) Request() *http.Request {
 	return r.req
 }
 
+func (r *Request) WithContext(ctx context.Context) {
+	r.req = r.req.WithContext(ctx)
+}
+
 func (r *Request) Query(key string) string {
 	return r.req.URL.Query().Get(key)
 }
