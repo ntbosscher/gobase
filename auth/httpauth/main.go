@@ -2,6 +2,7 @@ package httpauth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"github.com/golang-jwt/jwt"
 	"github.com/ntbosscher/gobase/auth"
@@ -367,10 +368,19 @@ func setupSession(rq *res.Request, user *auth.UserInfo, config *Config) (accessT
 
 func loginHandler(config *Config) res.HandlerFunc2 {
 	return func(rq *res.Request) res.Responder {
+
 		creds := &Credential{}
-		if err := rq.ParseJSON(creds); err != nil {
+
+		jsonBytes, err := ioutil.ReadAll(rq.Request().Body)
+		if err != nil {
 			return res.BadRequest(err.Error())
 		}
+
+		if err := json.Unmarshal(jsonBytes, creds); err != nil {
+			return res.BadRequest(err.Error())
+		}
+
+		creds.Raw = jsonBytes
 
 		user, err := config.CredentialChecker(rq.Context(), creds)
 		if err != nil {
@@ -392,6 +402,8 @@ func loginHandler(config *Config) res.HandlerFunc2 {
 type Credential struct {
 	Username string
 	Password string
+
+	Raw json.RawMessage
 }
 
 type CredentialChecker = func(context.Context, *Credential) (*auth.UserInfo, error)
