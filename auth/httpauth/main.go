@@ -33,6 +33,10 @@ type ActiveUserValidator func(ctx context.Context, user *auth.UserInfo) error
 
 type Config struct {
 
+	// SameSite: wether or not to restrict cookies to SameSite
+	// default: http default
+	SameSite http.SameSite
+
 	// Optional oauth config
 	OAuth *oauth.Config
 
@@ -443,17 +447,19 @@ func createAccessToken(user *auth.UserInfo, lifetime time.Duration) (token strin
 
 func removeCookies(rq *res.Request, config *Config) {
 	http.SetCookie(rq.Writer(), &http.Cookie{
-		Secure: !env.IsTesting,
-		Name:   config.getAccessTokenCookieName(),
-		MaxAge: -1,
-		Path:   "/",
+		Secure:   !env.IsTesting,
+		Name:     config.getAccessTokenCookieName(),
+		MaxAge:   -1,
+		Path:     "/",
+		SameSite: config.SameSite,
 	})
 
 	http.SetCookie(rq.Writer(), &http.Cookie{
-		Secure: !env.IsTesting,
-		Name:   config.getRefreshTokenCookieName(),
-		MaxAge: -1,
-		Path:   "/",
+		Secure:   !env.IsTesting,
+		Name:     config.getRefreshTokenCookieName(),
+		MaxAge:   -1,
+		Path:     "/",
+		SameSite: config.SameSite,
 	})
 }
 
