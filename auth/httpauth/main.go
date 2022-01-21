@@ -324,11 +324,12 @@ func refreshHandler(config *Config) res.HandlerFunc2 {
 		}
 
 		http.SetCookie(rq.Writer(), &http.Cookie{
-			Secure:  !env.IsTesting,
-			Name:    config.getAccessTokenCookieName(),
-			Value:   accessToken,
-			Expires: accessTokenExpiry,
-			Path:    "/",
+			Secure:   !env.IsTesting,
+			Name:     config.getAccessTokenCookieName(),
+			Value:    accessToken,
+			Expires:  accessTokenExpiry,
+			Path:     "/",
+			SameSite: config.SameSite,
 		})
 
 		return res.Ok(map[string]interface{}{
@@ -351,11 +352,12 @@ func setupSession(rq *res.Request, user *auth.UserInfo, config *Config) (accessT
 	}
 
 	http.SetCookie(rq.Writer(), &http.Cookie{
-		Secure:  !env.IsTesting,
-		Name:    config.getAccessTokenCookieName(),
-		Value:   accessToken,
-		Expires: accessTokenExpiry,
-		Path:    "/",
+		Secure:   !env.IsTesting,
+		Name:     config.getAccessTokenCookieName(),
+		Value:    accessToken,
+		Expires:  accessTokenExpiry,
+		Path:     "/",
+		SameSite: config.SameSite,
 	})
 
 	http.SetCookie(rq.Writer(), &http.Cookie{
@@ -365,6 +367,7 @@ func setupSession(rq *res.Request, user *auth.UserInfo, config *Config) (accessT
 		Value:    refreshToken,
 		Expires:  refreshTokenExpiry,
 		Path:     "/",
+		SameSite: config.SameSite,
 	})
 
 	return
