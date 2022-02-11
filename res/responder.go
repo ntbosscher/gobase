@@ -311,6 +311,12 @@ func WithCodeAndMessage(code int, message string) Responder {
 	}
 }
 
+func WithCode(code int) Responder {
+	return &responder{
+		status: code,
+	}
+}
+
 func NotAuthorized(reason ...string) Responder {
 
 	msg := "not authorized"
