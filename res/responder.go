@@ -117,9 +117,27 @@ func (resp *responder) Respond(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := json.NewEncoder(w).Encode(resp.data); err != nil {
-		log.Println(err)
+	if bodyAllowedForStatus(resp.status) {
+		if err := json.NewEncoder(w).Encode(resp.data); err != nil {
+			log.Println(err)
+		}
+	} else if resp.data != nil {
+		log.Println("body not allowed for status, but .data was not nil")
 	}
+}
+
+// bodyAllowedForStatus reports whether a given response status code
+// permits a body. See RFC 7230, section 3.3.
+func bodyAllowedForStatus(status int) bool {
+	switch {
+	case status >= 100 && status <= 199:
+		return false
+	case status == 204:
+		return false
+	case status == 304:
+		return false
+	}
+	return true
 }
 
 func Html(str string) Responder {
