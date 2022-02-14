@@ -181,6 +181,9 @@ type Email struct {
 	// if left blank, DEFAULT_EMAIL_FROM will be used
 	From string
 
+	// ReplyTo defines the reply-to header, excluded if left blank
+	ReplyTo string
+
 	// Subject is the email's subject field
 	Subject string
 
@@ -211,6 +214,10 @@ func (e *Email) Send() error {
 
 	mg := mailgun.NewMailgun(mailgunDomain, mailgunAPIKey)
 	msg := mg.NewMessage(e.From, e.Subject, e.Text, e.To...)
+
+	if e.ReplyTo != "" {
+		msg.SetReplyTo(e.ReplyTo)
+	}
 
 	if e.HTML != "" {
 		msg.SetHtml(e.HTML)
