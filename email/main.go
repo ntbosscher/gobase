@@ -2,6 +2,7 @@ package email
 
 import (
 	"bytes"
+	"errors"
 	"github.com/mailgun/mailgun-go"
 	"github.com/ntbosscher/gobase/env"
 	"html/template"
@@ -170,4 +171,54 @@ func send(mg *mailgun.MailgunImpl, msg *mailgun.Message) error {
 	}
 
 	return err
+}
+
+type Email struct {
+	// To is a list of recipients to send to
+	To []string
+
+	// From is the email address this is 'sent from'
+	// if left blank, DEFAULT_EMAIL_FROM will be used
+	From string
+
+	// Subject is the email's subject field
+	Subject string
+
+	// Text is the email's text version
+	// if left blank, must specify HTML
+	Text string
+
+	// HTML is the email's html version
+	// if left blank, this email will be sent as plain-text email
+	HTML string
+
+	// Attachments adds file attachments to the email
+	Attachments []*Attachment
+}
+
+func (e *Email) Send() error {
+	if len(e.To) == 0 {
+		return errors.New("no email recipients specified")
+	}
+
+	if e.Text == "" && e.HTML == "" {
+		return errors.New("missing email content")
+	}
+
+	if e.From == "" {
+		e.From = defaultFrom
+	}
+
+	mg := mailgun.NewMailgun(mailgunDomain, mailgunAPIKey)
+	msg := mg.NewMessage(e.From, e.Subject, e.Text, e.To...)
+
+	if e.HTML != "" {
+		msg.SetHtml(e.HTML)
+	}
+
+	for _, attachment := range e.Attachments {
+		msg.AddBufferAttachment(attachment.Name, attachment.Value)
+	}
+
+	return send(mg, msg)
 }
