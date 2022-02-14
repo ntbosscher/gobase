@@ -81,3 +81,29 @@ func TestCents_MarshalJSON(t *testing.T) {
 		t.Fatal("incorrect 0.00")
 	}
 }
+
+func TestCents_String(t *testing.T) {
+
+	test := map[Cents]string{
+		10:   "0.10",
+		-10:  "-0.10",
+		-110: "-1.10",
+		110:  "1.10",
+	}
+
+	for k, v := range test {
+		if k.String() != v {
+			t.Error("invalid formatting for ", v, " got: ", k.String())
+		}
+
+		t.Log(k.String())
+	}
+
+	for k, v := range test {
+		if CentsWithJsonEncoding(k).String() != v {
+			t.Error("invalid with-json formatting for ", v, " got: ", k.String())
+		}
+
+		t.Log(CentsWithJsonEncoding(k).String())
+	}
+}

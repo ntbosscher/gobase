@@ -12,7 +12,15 @@ import (
 type Cents int
 
 func (u Cents) String() string {
-	return fmt.Sprintf("%d.%02d", u/100, u%100)
+	sign := ""
+	value := u
+
+	if u < 0 {
+		sign = "-"
+		value = -u
+	}
+
+	return fmt.Sprintf("%s%d.%02d", sign, value/100, value%100)
 }
 
 type NullCents struct {
@@ -70,7 +78,15 @@ func (n *NullCents) UnmarshalJSON(data []byte) error {
 type CentsWithJsonEncoding Cents
 
 func (u CentsWithJsonEncoding) String() string {
-	return fmt.Sprintf("%d.%02d", u/100, u%100)
+	sign := ""
+	value := u
+
+	if u < 0 {
+		sign = "-"
+		value = -u
+	}
+
+	return fmt.Sprintf("%s%d.%02d", sign, value/100, value%100)
 }
 
 func (u CentsWithJsonEncoding) MarshalJSON() ([]byte, error) {
