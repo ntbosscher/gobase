@@ -2,21 +2,42 @@ package email
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"github.com/mailgun/mailgun-go"
 	"github.com/ntbosscher/gobase/env"
 	"html/template"
-	"log"
+	"io/ioutil"
+	"mime"
+	"net/http"
+	"path"
+	"strings"
 )
 
 var mailgunDomain string
 var mailgunAPIKey string
+var provider string
+var postmarkAPIKey string
+var postmarkStream string
 var defaultFrom string
 
+const mailgunProvider = "mailgun"
+const postmarkProvider = "postmark"
+
 func init() {
-	mailgunDomain = env.Require("MAILGUN_DOMAIN")
-	mailgunAPIKey = env.Require("MAILGUN_API_KEY")
+	provider = env.Optional("EMAIL_PROVIDER", mailgunProvider)
 	defaultFrom = env.Require("DEFAULT_EMAIL_FROM")
+
+	switch provider {
+	case mailgunProvider:
+		mailgunDomain = env.Require("MAILGUN_DOMAIN")
+		mailgunAPIKey = env.Require("MAILGUN_API_KEY")
+	case postmarkProvider:
+		postmarkStream = env.Optional("POSTMARK_STREAM", "outbound")
+		postmarkAPIKey = env.Require("POSTMARK_API_KEY")
+	}
+
 }
 
 const defaultLeftPadding = "37px"
@@ -139,38 +160,32 @@ func SendTemplate(to string, subject string, template *TemplateInput, attachment
 type Attachment struct {
 	Name  string
 	Value []byte
+
+	// ContentType is the mime-type.
+	// if not provided the mime-type will be auto-calculated using the Name's extension
+	ContentType string
 }
 
 func SendHTML(to string, subject string, body string, attachments ...*Attachment) error {
-	mg := mailgun.NewMailgun(mailgunDomain, mailgunAPIKey)
-	msg := mg.NewMessage(defaultFrom, subject, body, to)
-	msg.SetHtml(body)
 
-	for _, attachment := range attachments {
-		msg.AddBufferAttachment(attachment.Name, attachment.Value)
+	em := &Email{
+		To:          []string{to},
+		Subject:     subject,
+		HTML:        body,
+		Attachments: attachments,
 	}
 
-	return send(mg, msg)
+	return em.Send()
 }
 
 func Send(to string, subject string, body string) error {
-	mg := mailgun.NewMailgun(mailgunDomain, mailgunAPIKey)
-	msg := mg.NewMessage(defaultFrom, subject, body, to)
-
-	return send(mg, msg)
-}
-
-func send(mg *mailgun.MailgunImpl, msg *mailgun.Message) error {
-	if env.IsTesting {
-		msg.EnableTestMode()
+	em := &Email{
+		To:      []string{to},
+		Subject: subject,
+		Text:    body,
 	}
 
-	_, _, err := mg.Send(msg)
-	if err != nil {
-		log.Println(err)
-	}
-
-	return err
+	return em.Send()
 }
 
 type Email struct {
@@ -212,8 +227,100 @@ func (e *Email) Send() error {
 		e.From = defaultFrom
 	}
 
+	switch provider {
+	case mailgunProvider:
+		return e.sendMailgun()
+	case postmarkProvider:
+		return e.sendPostmark()
+	default:
+		return errors.New("invalid mail provider '" + provider + "'")
+	}
+}
+
+type postmarkAttachment struct {
+	Name        string
+	Content     string
+	ContentType string
+}
+
+func (e *Email) sendPostmark() error {
+	if env.IsTesting {
+		e.To = []string{"test@blackhole.postmarkapp.com"}
+	}
+
+	body := map[string]interface{}{
+		"To":            strings.Join(e.To, ", "),
+		"From":          e.From,
+		"Subject":       e.Subject,
+		"MessageStream": postmarkStream,
+	}
+
+	if e.ReplyTo != "" {
+		body["ReplyTo"] = e.ReplyTo
+	}
+
+	if e.HTML != "" {
+		body["HtmlBody"] = e.HTML
+	}
+
+	if e.Text != "" {
+		body["TextBody"] = e.Text
+	}
+
+	if len(e.Attachments) > 0 {
+		list := []*postmarkAttachment{}
+
+		for _, att := range e.Attachments {
+			list = append(list, &postmarkAttachment{
+				Name:        att.Name,
+				Content:     base64.StdEncoding.EncodeToString(att.Value),
+				ContentType: mime.TypeByExtension(path.Ext(att.Name)),
+			})
+		}
+
+		body["Attachments"] = list
+	}
+
+	jsonBytes, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+
+	rq, err := http.NewRequest("POST", "https://api.postmarkapp.com/email", bytes.NewReader(jsonBytes))
+	if err != nil {
+		return err
+	}
+
+	rq.Header.Set("X-Postmark-Server-Token", postmarkAPIKey)
+	rq.Header.Set("Accept", "application/json")
+	rq.Header.Set("Content-Type", "application/json")
+
+	res, err := http.DefaultClient.Do(rq)
+	if err != nil {
+		return err
+	}
+
+	defer res.Body.Close()
+
+	resultJson, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+
+	if res.StatusCode >= 400 {
+		return errors.New("postmark failed to send email: " + string(resultJson))
+	}
+
+	return nil
+}
+
+func (e *Email) sendMailgun() error {
 	mg := mailgun.NewMailgun(mailgunDomain, mailgunAPIKey)
 	msg := mg.NewMessage(e.From, e.Subject, e.Text, e.To...)
+
+	if env.IsTesting {
+		msg.EnableTestMode()
+	}
 
 	if e.ReplyTo != "" {
 		msg.SetReplyTo(e.ReplyTo)
@@ -227,5 +334,6 @@ func (e *Email) Send() error {
 		msg.AddBufferAttachment(attachment.Name, attachment.Value)
 	}
 
-	return send(mg, msg)
+	_, _, err := mg.Send(msg)
+	return err
 }
