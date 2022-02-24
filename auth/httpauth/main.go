@@ -33,6 +33,10 @@ type ActiveUserValidator func(ctx context.Context, user *auth.UserInfo) error
 
 type Config struct {
 
+	// Domain defines the domain setting for authorization cookies
+	// default: "" (current domain only)
+	Domain string
+
 	// SameSite: wether or not to restrict cookies to SameSite
 	// default: http default
 	SameSite http.SameSite
@@ -330,6 +334,7 @@ func refreshHandler(config *Config) res.HandlerFunc2 {
 			Expires:  accessTokenExpiry,
 			Path:     "/",
 			SameSite: config.SameSite,
+			Domain:   config.Domain,
 		})
 
 		return res.Ok(map[string]interface{}{
@@ -358,6 +363,7 @@ func setupSession(rq *res.Request, user *auth.UserInfo, config *Config) (accessT
 		Expires:  accessTokenExpiry,
 		Path:     "/",
 		SameSite: config.SameSite,
+		Domain:   config.Domain,
 	})
 
 	http.SetCookie(rq.Writer(), &http.Cookie{
@@ -368,6 +374,7 @@ func setupSession(rq *res.Request, user *auth.UserInfo, config *Config) (accessT
 		Expires:  refreshTokenExpiry,
 		Path:     "/",
 		SameSite: config.SameSite,
+		Domain:   config.Domain,
 	})
 
 	return
@@ -455,6 +462,7 @@ func removeCookies(rq *res.Request, config *Config) {
 		MaxAge:   -1,
 		Path:     "/",
 		SameSite: config.SameSite,
+		Domain:   config.Domain,
 	})
 
 	http.SetCookie(rq.Writer(), &http.Cookie{
@@ -463,6 +471,7 @@ func removeCookies(rq *res.Request, config *Config) {
 		MaxAge:   -1,
 		Path:     "/",
 		SameSite: config.SameSite,
+		Domain:   config.Domain,
 	})
 }
 
