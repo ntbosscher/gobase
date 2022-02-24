@@ -129,6 +129,11 @@ func Setup(router *res.Router, config Config) *AuthRouter {
 	refreshPath := strs.Coalesce(config.RefreshPath, defaultRefreshEndpoint)
 	router.Post(refreshPath, refreshHandler(&config))
 
+	if env.IsTesting && config.Domain != "" {
+		log.Println("httpauth: removing .Domain in testing mode")
+		config.Domain = ""
+	}
+
 	if config.RegisterHandler != nil {
 		router.Post(strs.Coalesce(config.RegisterPath, defaultRegisterEndpoint), registerHandler(&config))
 	}
