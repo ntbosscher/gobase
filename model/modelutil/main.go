@@ -216,6 +216,6 @@ func UpdateStruct(ctx context.Context, table string, value interface{}, id int, 
 
 // UpdateStructWL updates the columns specified by allowedFields
 func UpdateStructWL(ctx context.Context, table string, value interface{}, id int, allowedFields ...string) {
-	qr := BuildUpdate(ctx, table, value, id, allowedFields...)
+	qr := BuildUpdateWL(ctx, table, value, id, allowedFields...)
 	squtil.MustExecContext(ctx, qr)
 }
