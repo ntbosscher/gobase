@@ -154,6 +154,31 @@ func InsertStruct(ctx context.Context, table string, value interface{}, ignoreFi
 	return int(squtil.MustInsert(ctx, qr))
 }
 
+// BuildUpdateWL works the same as BuildUpdate except that the list of fields provided is used as a white-list
+// instead of the black list method used by BuildUpdate.
+func BuildUpdateWL(ctx context.Context, table string, value interface{}, id int, allowedFields ...string) squirrel.UpdateBuilder {
+	update := squirrel.Eq{}
+
+	tx := model.Tx(ctx)
+	withDbNames := tx.Mapper.FieldMap(reflect.ValueOf(value))
+
+	for k, v := range withDbNames {
+		if strings.Contains(k, ".") { // ignore sub properties
+			continue
+		}
+
+		if !containsFieldName(allowedFields, k) {
+			continue
+		}
+
+		update[k] = v.Interface()
+	}
+
+	return model.Builder.Update(table).
+		SetMap(update).
+		Where(squirrel.Eq{"id": id})
+}
+
 func BuildUpdate(ctx context.Context, table string, value interface{}, id int, ignoreFields ...string) squirrel.UpdateBuilder {
 	update := squirrel.Eq{}
 
@@ -180,7 +205,17 @@ func BuildUpdate(ctx context.Context, table string, value interface{}, id int, i
 
 }
 
+// UpdateStruct updates the columns based on the struct provided.
+//
+// recommended to use UpdateStructWL instead since structs can change over time and caused unexpected
+// columns to be updated if not specified in the ignoreFields.
 func UpdateStruct(ctx context.Context, table string, value interface{}, id int, ignoreFields ...string) {
 	qr := BuildUpdate(ctx, table, value, id, ignoreFields...)
+	squtil.MustExecContext(ctx, qr)
+}
+
+// UpdateStructWL updates the columns specified by allowedFields
+func UpdateStructWL(ctx context.Context, table string, value interface{}, id int, allowedFields ...string) {
+	qr := BuildUpdate(ctx, table, value, id, allowedFields...)
 	squtil.MustExecContext(ctx, qr)
 }
