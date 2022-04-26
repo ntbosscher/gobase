@@ -19,7 +19,7 @@ require (
 	github.com/jackc/pgx/v4 v4.11.0
 	github.com/jmoiron/sqlx v1.2.0
 	github.com/joho/godotenv v1.3.0
-	github.com/json-iterator/go v1.1.10
+	github.com/json-iterator/go v1.1.12
 	github.com/lann/builder v0.0.0-20180802200727-47ae307949d0
 	github.com/lib/pq v1.5.2
 	github.com/mailgun/mailgun-go v2.0.0+incompatible

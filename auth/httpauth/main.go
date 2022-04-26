@@ -17,17 +17,10 @@ import (
 	"time"
 )
 
+// jwtKey setup during first call to Setup()
 var jwtKey []byte
-var IsVerbose bool
 
-func init() {
-	var err error
-	jwtKey, err = ioutil.ReadFile("./.jwtkey")
-	if err != nil {
-		log.Println("./.jwtkey should contain 2048 random bytes. Run `go run github.com/ntbosscher/gobase/auth/httpauth/jwtgen` to automatically generate one")
-		log.Fatal("failed to read required file ./.jwtkey: " + err.Error())
-	}
-}
+var IsVerbose bool
 
 type ActiveUserValidator func(ctx context.Context, user *auth.UserInfo) error
 
@@ -121,6 +114,15 @@ const defaultLogoutEndpoint = "/api/auth/logout"
 const defaultRegisterEndpoint = "/api/auth/register"
 
 func Setup(router *res.Router, config Config) *AuthRouter {
+
+	if jwtKey == nil {
+		var err error
+		if jwtKey, err = ioutil.ReadFile("./.jwtkey"); err != nil {
+			log.Println("./.jwtkey should contain 2048 random bytes. Run `go run github.com/ntbosscher/gobase/auth/httpauth/jwtgen` to automatically generate one")
+			log.Fatal("failed to read required file ./.jwtkey: " + err.Error())
+		}
+	}
+
 	loginPath := strs.Coalesce(config.LoginPath, defaultLoginEndpoint)
 	router.Post(loginPath, loginHandler(&config))
 	logoutPath := strs.Coalesce(config.LogoutPath, defaultLogoutEndpoint)

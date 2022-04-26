@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"github.com/Masterminds/squirrel"
 	"github.com/ntbosscher/gobase/auth"
 	"github.com/ntbosscher/gobase/auth/httpauth"
@@ -26,48 +27,51 @@ func init() {
 
 func main() {
 
-	router := r.NewRouter()
+	rt := r.NewRouter()
 
 	// setup database transactions
-	router.Use(model.AttachTxHandler("/websocket"))
+	rt.Use(model.AttachTxHandler("/websocket"))
 
 	// make requestip.IP() available
-	router.Use(requestip.Middleware())
+	rt.Use(requestip.Middleware())
 
 	// setup auth
-	router.WithAuth(httpauth.Config{
+	rt.WithAuth(httpauth.Config{
 		// .. setup jwt-based authentication
 		// .. oauth setup (optional)
+		CredentialChecker: func(ctx context.Context, credential *httpauth.Credential) (*auth.UserInfo, error) {
+			return nil, errors.New("todo")
+		},
 	})
 
 	// serve react-app
-	router.ReactApp("/", "./react-app/build", "localhost:3000")
+	rt.ReactApp("/", "./react-app/build", "localhost:3000")
 
 	// simple route
-	router.Add("GET", "/api/products", getProducts)
+	rt.Add("GET", "/api/products", getProducts)
 
 	// restrict to internal users
-	router.Add("POST", "/api/product", todo, RoleInternal)
-	router.Add("PUT", "/api/product", todo, RoleInternal)
-	router.Add("POST", "/api/product/upload", uploadProduct, routeSpecificMiddleware, RoleInternal)
+	rt.Add("POST", "/api/product", todo, RoleInternal)
+	rt.Add("PUT", "/api/product", todo, RoleInternal)
+	rt.Add("POST", "/api/product/upload", uploadProduct, routeSpecificMiddleware, RoleInternal)
 
 	// api versioning (based on X-APIVersion header)
-	router.Add("POST", "/api/customer/create", r.Versioned(
+	rt.Add("POST", "/api/customer/create", r.Versioned(
 		r.DefaultVersion(todo),
 		r.Version("1", todo),
 	))
 
 	// rate limiting
-	router.Add("GET", "/api/admin/reports", todo, r.RateLimit(10, 10*time.Second))
+	rt.Add("GET", "/api/admin/reports", todo, r.RateLimit(10, 10*time.Second))
 
 	// receive a github post-push hook and auto-update ourselves
-	router.GithubContinuousDeployment(res.GithubCDInput{
+	rt.GithubContinuousDeployment(res.GithubCDInput{
 		Path:           "/api/github-auto-deploy",
 		Secret:         env.Require("GITHUB_DEPLOY_KEY"),
 		PostPullScript: "./rebuild-and-migrate.sh",
 	})
 
-	server := httpdefaults.Server("8080", router)
+	server := httpdefaults.Server("8080", rt)
 	log.Println("Serving on " + server.Addr)
 	log.Fatal(server.ListenAndServe())
 }

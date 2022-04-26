@@ -160,37 +160,35 @@ func Version(n string, handler res.HandlerFunc2) VersionedHandler {
 	}
 }
 
-func Versioned(versionedHandlers ...VersionedHandler) Middleware {
+func Versioned(versionedHandlers ...VersionedHandler) res.HandlerFunc2 {
 
-	return func(router *Router, method string, path string, next res.HandlerFunc2) res.HandlerFunc2 {
-		uniq := map[string]bool{}
-		var defaultHandler *VersionedHandler
+	uniq := map[string]bool{}
+	var defaultHandler *VersionedHandler
 
+	for _, handler := range versionedHandlers {
+		if uniq[handler.version] {
+			log.Panicf("Version '%s' already exists", handler.version)
+		}
+
+		uniq[handler.version] = true
+		if handler.isDefault {
+			defaultHandler = &handler
+		}
+	}
+
+	return func(rq *res.Request) res.Responder {
+		version := rq.APIVersion().String()
 		for _, handler := range versionedHandlers {
-			if uniq[handler.version] {
-				log.Panicf("Version '%s' already exists for route %s %s", handler.version, method, path)
-			}
-
-			uniq[handler.version] = true
-			if handler.isDefault {
-				defaultHandler = &handler
+			if handler.version == version {
+				return handler.value(rq)
 			}
 		}
 
-		return func(rq *res.Request) res.Responder {
-			version := rq.APIVersion().String()
-			for _, handler := range versionedHandlers {
-				if handler.version == version {
-					return handler.value(rq)
-				}
-			}
-
-			if defaultHandler != nil {
-				return defaultHandler.value(rq)
-			}
-
-			return res.NotFound("No handler for that api-version")
+		if defaultHandler != nil {
+			return defaultHandler.value(rq)
 		}
+
+		return res.NotFound("No handler for that api-version")
 	}
 }
 
