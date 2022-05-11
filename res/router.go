@@ -297,6 +297,12 @@ func (r *Request) MustParseJSON(result interface{}) {
 	er.CheckForDecode(err)
 }
 
+func MustParseJSON[T any](r *Request, result T) T {
+	err := r.ParseJSON(result)
+	er.CheckForDecode(err)
+	return result
+}
+
 func (r *Request) APIVersion() *apiversion.Ver {
 	return apiversion.Current(r.Context())
 }
