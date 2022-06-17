@@ -279,7 +279,9 @@ func authHandler(config *Config) func(rq *res.Request) (res.Responder, context.C
 				user, err = config.APITokenChecker(rq.Context(), tokenString)
 			}
 
-			return res.NotAuthorized(err.Error()), nil
+			if err != nil {
+				return res.NotAuthorized(err.Error()), nil
+			}
 		}
 
 		ctx := auth.SetUser(rq.Context(), user)
