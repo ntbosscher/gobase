@@ -23,6 +23,7 @@ var jwtKey []byte
 var IsVerbose bool
 
 type ActiveUserValidator func(ctx context.Context, user *auth.UserInfo) error
+type APITokenChecker func(ctx context.Context, token string) (*auth.UserInfo, error)
 
 type Config struct {
 
@@ -39,6 +40,9 @@ type Config struct {
 
 	// Checks user credentials on login
 	CredentialChecker CredentialChecker
+
+	// APITokenChecker checks bearer tokens on requests for API access
+	APITokenChecker APITokenChecker
 
 	// ValidateActiveUser allows you to do extra db checks when
 	// we do a access token refresh
@@ -271,6 +275,10 @@ func authHandler(config *Config) func(rq *res.Request) (res.Responder, context.C
 
 		user, err := parseJwt(tokenString)
 		if err != nil {
+			if config.APITokenChecker != nil {
+				user, err = config.APITokenChecker(rq.Context(), tokenString)
+			}
+
 			return res.NotAuthorized(err.Error()), nil
 		}
 
