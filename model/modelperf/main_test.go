@@ -7,7 +7,7 @@ import (
 
 func TestNewPerf(t *testing.T) {
 
-	_, cancel, perf := NewPerf(context.Background(), &PerfInput{})
+	_, cancel, perf := New(context.Background(), &PerfInput{})
 	cancel()
 
 	perf.GetSummaries()

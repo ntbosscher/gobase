@@ -2,8 +2,10 @@ package modelperf
 
 import (
 	"context"
+	"fmt"
 	"github.com/ntbosscher/gobase/er"
 	"github.com/ntbosscher/gobase/model"
+	"io"
 	"sort"
 	"sync"
 	"time"
@@ -97,6 +99,16 @@ func (p *Perf) GetSummaries() []*Summary {
 	return list
 }
 
+func SummaryPrinter(sums []*Summary, writer io.Writer) {
+	for _, sum := range sums {
+		fmt.Fprintln(writer, sum.Method)
+		fmt.Fprintln(writer, sum.Query)
+		fmt.Fprintln(writer)
+		fmt.Fprintf(writer, "total:%s avg:%s calls:%d errors:%d first:%s\n", sum.TotalDuration.Round(time.Millisecond), sum.AverageDuration.Round(time.Millisecond), sum.CallCount, sum.ErrorCount, sum.FirstSeen.Format("15:04:05"))
+		fmt.Fprintln(writer, "------------------------------------------------------")
+	}
+}
+
 type Record struct {
 	Method string
 	Query  string
@@ -112,10 +124,14 @@ type PerfInput struct {
 	Filter func(r *Record) bool
 }
 
-// NewPerf creates a new performance tracker
+// New creates a new performance tracker
 // use the context-cancel func to clean up resources when
-func NewPerf(ctx context.Context, input *PerfInput) (context.Context, context.CancelFunc, *Perf) {
+func New(ctx context.Context, input *PerfInput) (context.Context, context.CancelFunc, *Perf) {
 	p := &Perf{}
+
+	if input == nil {
+		input = &PerfInput{}
+	}
 
 	inputC := make(chan *Record, 1)
 	ctx, cancel := context.WithCancel(ctx)
