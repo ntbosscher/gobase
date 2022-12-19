@@ -93,6 +93,7 @@ func (rt *Router) StaticFileDir(urlPrefix string, srcDir string) {
 // - In testing mode (environment variable TEST=true) reverse proxies to create-react-app's node server on port given
 func (rt *Router) ReactApp(urlPrefix string, srcDir string, testNodeServerAddr string, cfg ...ReactConfig) {
 	react := ReactApp(srcDir, testNodeServerAddr, cfg...)
+	react = http.StripPrefix(urlPrefix, react)
 
 	rt.next.PathPrefix(urlPrefix).
 		Handler(funcToHttpServer(func(writer http.ResponseWriter, request *http.Request) {
