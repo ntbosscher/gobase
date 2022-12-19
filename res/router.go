@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/gorilla/mux"
 	"github.com/ntbosscher/gobase/apiversion"
+	"github.com/ntbosscher/gobase/env"
 	"github.com/ntbosscher/gobase/er"
 	"github.com/ntbosscher/gobase/integrations/github/githubcd"
 	"github.com/ntbosscher/gobase/strs"
@@ -93,7 +94,10 @@ func (rt *Router) StaticFileDir(urlPrefix string, srcDir string) {
 // - In testing mode (environment variable TEST=true) reverse proxies to create-react-app's node server on port given
 func (rt *Router) ReactApp(urlPrefix string, srcDir string, testNodeServerAddr string, cfg ...ReactConfig) {
 	react := ReactApp(srcDir, testNodeServerAddr, cfg...)
-	react = http.StripPrefix(urlPrefix, react)
+
+	if !env.IsTesting {
+		react = http.StripPrefix(urlPrefix, react)
+	}
 
 	rt.next.PathPrefix(urlPrefix).
 		Handler(funcToHttpServer(func(writer http.ResponseWriter, request *http.Request) {
