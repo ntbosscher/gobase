@@ -49,6 +49,7 @@ require (
 	github.com/onsi/gomega v1.19.0 // indirect
 	github.com/rogpeppe/go-internal v1.3.2 // indirect
 	golang.org/x/crypto v0.0.0-20220214200702-86341886e292 // indirect
+	golang.org/x/exp v0.0.0-20230118134722-a68e582fa157 // indirect
 	golang.org/x/net v0.0.0-20220225172249-27dd8689420f // indirect
 	golang.org/x/oauth2 v0.0.0-20200902213428-5d25da1a8d43 // indirect
 	golang.org/x/text v0.3.7 // indirect

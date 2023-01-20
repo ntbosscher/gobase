@@ -25,8 +25,20 @@ func MakeBoolMap[T comparable](input []T) map[T]bool {
 	for _, item := range input {
 		mp[item] = true
 	}
-	
+
 	return mp
+}
+
+func BoolMapToArray[T comparable](input map[T]bool) []T {
+	var out []T
+	
+	for k, v := range input {
+		if v {
+			out = append(out, k)
+		}
+	}
+
+	return out
 }
 
 func CloneMap[T comparable, V any](input map[T]V) map[T]V {
@@ -37,6 +49,19 @@ func CloneMap[T comparable, V any](input map[T]V) map[T]V {
 	}
 
 	return out
+}
+
+func GetMapPairs[T comparable, U any](input map[T]U) []*Pair[T, U] {
+	var list []*Pair[T, U]
+
+	for k, v := range input {
+		list = append(list, &Pair[T, U]{
+			Key:   k,
+			Value: v,
+		})
+	}
+
+	return list
 }
 
 func CountMap[T comparable](input []T) map[T]int {

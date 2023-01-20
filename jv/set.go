@@ -21,12 +21,13 @@ func (s *Set[T]) Contains(value T) bool {
 	return false
 }
 
-func (s *Set[T]) Add(value T) {
-	if s.Contains(value) {
-		return
-	}
+func (s *Set[T]) Add(value ...T) {
 
-	s.Values = append(s.Values, value)
+	value = Filter(value, func(input T) bool {
+		return !s.Contains(input)
+	})
+
+	s.Values = append(s.Values, value...)
 }
 
 func (s *Set[T]) Remove(value T) {

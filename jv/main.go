@@ -18,6 +18,13 @@ func StringStartsWithAny(href string, s ...string) bool {
 	return false
 }
 
+func StringIndexCI(input string, substring string) int {
+	input = strings.ToLower(input)
+	substring = strings.ToLower(substring)
+
+	return strings.Index(input, substring)
+}
+
 func StringContainsCI(input string, substring ...string) bool {
 	for _, str := range substring {
 		if strings.Contains(strings.ToLower(input), strings.ToLower(str)) {
@@ -29,6 +36,18 @@ func StringContainsCI(input string, substring ...string) bool {
 }
 
 func Min[T constraints.Ordered](input ...T) T {
+	m := input[0]
+
+	for _, item := range input {
+		if m > item {
+			m = item
+		}
+	}
+
+	return m
+}
+
+func Max[T constraints.Ordered](input ...T) T {
 	m := input[0]
 
 	for _, item := range input {
