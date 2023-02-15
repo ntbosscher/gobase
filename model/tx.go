@@ -50,6 +50,11 @@ func Tx(ctx context.Context) *sqlx.Tx {
 	return getInfo(ctx).tx
 }
 
+func HasTx(ctx context.Context) bool {
+	_, ok := ctx.Value(transactionContextKey).(*txInfo)
+	return ok
+}
+
 func getInfo(ctx context.Context) *txInfo {
 	return ctx.Value(transactionContextKey).(*txInfo)
 }

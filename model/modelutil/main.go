@@ -7,11 +7,13 @@ import (
 	"encoding/csv"
 	"fmt"
 	"github.com/Masterminds/squirrel"
-	"github.com/jmoiron/sqlx"
+	"github.com/ntbosscher/gobase/encoding/tsv"
 	"github.com/ntbosscher/gobase/model"
 	"github.com/ntbosscher/gobase/model/squtil"
+	"os"
 	"reflect"
 	"strings"
+	"text/tabwriter"
 	"time"
 )
 
@@ -23,52 +25,58 @@ type Table struct {
 func SelectTable(ctx context.Context, query string, args ...interface{}) (*Table, error) {
 	table := &Table{}
 
-	err := model.WithTx(ctx, func(ctx context.Context, tx *sqlx.Tx) error {
-		rows, err := model.Tx(ctx).QueryContext(ctx, query, args...)
+	if !model.HasTx(ctx) {
+		tctx, cancel, err := model.BeginTx(ctx, "select-table")
 		if err != nil {
-			return err
+			return nil, err
 		}
 
-		defer rows.Close()
+		defer cancel()
+		ctx = tctx
+	}
 
-		cols, err := rows.Columns()
+	rows, err := model.Tx(ctx).QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	table.Headers = cols
+
+	types, err := rows.ColumnTypes()
+	if err != nil {
+		return nil, err
+	}
+
+	var columnValues []*stringScanner
+	var interfaceValues []interface{}
+	for i := range cols {
+		scanner := &stringScanner{
+			dbType: types[i].DatabaseTypeName(),
+		}
+		columnValues = append(columnValues, scanner)
+		interfaceValues = append(interfaceValues, scanner)
+	}
+
+	for rows.Next() {
+		err := rows.Scan(interfaceValues...)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
-		table.Headers = cols
-
-		types, err := rows.ColumnTypes()
-		if err != nil {
-			return err
+		var row []string
+		for _, col := range columnValues {
+			row = append(row, col.Value)
 		}
 
-		var columnValues []*stringScanner
-		var interfaceValues []interface{}
-		for i := range cols {
-			scanner := &stringScanner{
-				dbType: types[i].DatabaseTypeName(),
-			}
-			columnValues = append(columnValues, scanner)
-			interfaceValues = append(interfaceValues, scanner)
-		}
-
-		for rows.Next() {
-			err := rows.Scan(interfaceValues...)
-			if err != nil {
-				return err
-			}
-
-			var row []string
-			for _, col := range columnValues {
-				row = append(row, col.Value)
-			}
-
-			table.Rows = append(table.Rows, row)
-		}
-
-		return nil
-	})
+		table.Rows = append(table.Rows, row)
+	}
 
 	return table, err
 }
@@ -218,4 +226,20 @@ func UpdateStruct(ctx context.Context, table string, value interface{}, id int, 
 func UpdateStructWL(ctx context.Context, table string, value interface{}, id int, allowedFields ...string) {
 	qr := BuildUpdateWL(ctx, table, value, id, allowedFields...)
 	squtil.MustExecContext(ctx, qr)
+}
+
+func PrintTable(ctx context.Context, query string, args ...interface{}) {
+	tbl, err := SelectTable(ctx, query, args...)
+	if err != nil {
+		return
+	}
+
+	wr := tabwriter.NewWriter(os.Stdout, 4, 1, 1, ' ', 0)
+	cols := tsv.NewEncoder(wr)
+	cols.WriteRow(tbl.Headers)
+	for _, row := range tbl.Rows {
+		cols.WriteRow(row)
+	}
+
+	wr.Flush()
 }
