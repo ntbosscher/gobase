@@ -151,7 +151,7 @@ func Setup(router *res.Router, config Config) *AuthRouter {
 	}
 
 	sessionSetter := func(rq *res.Request, user *auth.UserInfo) error {
-		_, _, err := setupSession(rq, user, &config)
+		_, err := setupSession(rq, user, &config)
 		return err
 	}
 
@@ -258,7 +258,7 @@ func registerHandler(config *Config) func(rq *res.Request) res.Responder {
 	return func(rq *res.Request) res.Responder {
 		info, response := config.RegisterHandler(rq)
 		if info != nil {
-			_, _, err := setupSession(rq, info, config)
+			_, err := setupSession(rq, info, config)
 			logVerbose(err)
 		}
 
@@ -360,7 +360,12 @@ func refreshHandler(config *Config) res.HandlerFunc2 {
 	}
 }
 
-func setupSession(rq *res.Request, user *auth.UserInfo, config *Config) (accessToken string, refreshToken string, err error) {
+type SessionInfo struct {
+	AccessToken  string `json:"accessToken"`
+	RefreshToken string `json:"refreshToken"`
+}
+
+func setupSession(rq *res.Request, user *auth.UserInfo, config *Config) (info *SessionInfo, err error) {
 	accessToken, accessTokenExpiry, err := createAccessToken(user, config.AccessTokenLifeTime)
 	if err != nil {
 		err = errors.New("Failed to create access token: " + err.Error())
@@ -394,6 +399,11 @@ func setupSession(rq *res.Request, user *auth.UserInfo, config *Config) (accessT
 		Domain:   config.Domain,
 	})
 
+	info = &SessionInfo{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+	}
+
 	return
 }
 
@@ -418,15 +428,12 @@ func loginHandler(config *Config) res.HandlerFunc2 {
 			return res.AppError(err.Error())
 		}
 
-		accessToken, refreshToken, err := setupSession(rq, user, config)
+		info, err := setupSession(rq, user, config)
 		if err != nil {
 			return res.Error(err)
 		}
 
-		return res.Ok(map[string]interface{}{
-			"accessToken":  accessToken,
-			"refreshToken": refreshToken,
-		})
+		return res.Ok(info)
 	}
 }
 

@@ -17,8 +17,12 @@ func (a *AuthRouter) AddIgnoreRoute(path string) {
 }
 
 func (a *AuthRouter) ManuallySetSession(rq *res.Request, user *auth.UserInfo) error {
-	_, _, err := setupSession(rq, user, a.config)
+	_, err := setupSession(rq, user, a.config)
 	return err
+}
+
+func (a *AuthRouter) ManuallySetSession2(rq *res.Request, user *auth.UserInfo) (*SessionInfo, error) {
+	return setupSession(rq, user, a.config)
 }
 
 func (a *AuthRouter) Get(path string, role auth.TRole, handler res.HandlerFunc2) {
