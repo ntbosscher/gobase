@@ -23,8 +23,20 @@ type ReactConfig interface{}
 
 type reactIndexFile func(r *http.Request) string
 
+type reactSmoothTransitionBuildFolder string
+
 func ReactCustomIndexFile(fx func(r *http.Request) string) ReactConfig {
 	return reactIndexFile(fx)
+}
+
+// ReactSmoothTransitionBuildFolder sets a folder to use as a fallback for
+// react's smooth transition. This is useful when you have a react app that
+// is actively in-use, but you want to deploy a new version of the app.
+//
+// When an old file is requested by an active session, the old file can
+// still be served.
+func ReactSmoothTransitionBuildFolder(value string) ReactConfig {
+	return reactSmoothTransitionBuildFolder(value)
 }
 
 func ReactApp(dir string, testNodeServerAddr string, cfg ...ReactConfig) http.Handler {
@@ -42,6 +54,9 @@ func ReactApp(dir string, testNodeServerAddr string, cfg ...ReactConfig) http.Ha
 		switch value := item.(type) {
 		case reactIndexFile:
 			rr.indexFile = value
+		case reactSmoothTransitionBuildFolder:
+			rr.fallbackStaticDir = string(value)
+			rr.fallbackFileServer = http.FileServer(http.Dir(value))
 		default:
 			log.Println("unknown ReactApp option with type " + reflect.TypeOf(item).String())
 		}
@@ -51,8 +66,12 @@ func ReactApp(dir string, testNodeServerAddr string, cfg ...ReactConfig) http.Ha
 }
 
 type reactRouter struct {
-	fileServer         http.Handler
-	staticDir          string
+	fileServer http.Handler
+	staticDir  string
+
+	fallbackFileServer http.Handler
+	fallbackStaticDir  string
+
 	testNodeServerAddr string
 	indexFile          reactIndexFile
 }
@@ -67,6 +86,23 @@ func (router *reactRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	fpath := filepath.Join(router.staticDir, path.Clean(r.URL.Path))
 	_, err := os.Stat(fpath)
 	is404 := os.IsNotExist(err)
+	fileServer := router.fileServer
+
+	// if the file doesn't exist, check the fallback folder
+	//
+	// This may be used by active sessions that want access to files from
+	// the previous release.
+	if is404 && router.fallbackStaticDir != "" {
+		fpath2 := filepath.Join(router.fallbackStaticDir, path.Clean(r.URL.Path))
+		_, err2 := os.Stat(fpath2)
+		is404 = os.IsNotExist(err2)
+
+		if !is404 {
+			fileServer = router.fallbackFileServer
+			fpath = fpath2
+			err = nil
+		}
+	}
 
 	// if it isn't a static file, serve up index.html
 	if is404 || r.URL.Path == "/" {
@@ -88,7 +124,7 @@ func (router *reactRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	router.fileServer.ServeHTTP(w, r)
+	fileServer.ServeHTTP(w, r)
 }
 
 func hasAccessToSourceMaps(r *http.Request) bool {
