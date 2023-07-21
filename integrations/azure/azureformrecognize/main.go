@@ -1,12 +1,14 @@
 package azureformrecognize
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/ntbosscher/gobase/currency"
 	"github.com/ntbosscher/gobase/env"
 	"github.com/ntbosscher/gobase/er"
@@ -68,7 +70,31 @@ func init() {
 	pipe = runtime.NewPipeline(module, version, runtime.PipelineOptions{}, conOptions)
 }
 
-func StartAnalyzeJob(ctx context.Context, body io.ReadSeekCloser, contentType string, model string) (string, error) {
+type AnalyzeBody struct {
+	Body        io.ReadSeekCloser
+	ContentType string
+}
+
+func AnalyzeFromReader(body io.ReadSeekCloser, contentType string) *AnalyzeBody {
+	return &AnalyzeBody{
+		Body:        body,
+		ContentType: contentType,
+	}
+}
+
+func AnalyzeFromURL(url string) *AnalyzeBody {
+	content, _ := json.Marshal(map[string]string{
+		"urlSource": url,
+	})
+
+	body := aws.ReadSeekCloser(bytes.NewReader(content))
+	return &AnalyzeBody{
+		Body:        body,
+		ContentType: "application/json",
+	}
+}
+
+func StartAnalyzeJob(ctx context.Context, body *AnalyzeBody, model string) (string, error) {
 
 	qr := url.Values{}
 	qr.Set("locale", "en-US")
@@ -83,7 +109,7 @@ func StartAnalyzeJob(ctx context.Context, body io.ReadSeekCloser, contentType st
 
 	rq.Raw().Header.Set("Ocp-Apim-Subscription-Key", subscriptionId)
 
-	err = rq.SetBody(body, contentType)
+	err = rq.SetBody(body.Body, body.ContentType)
 	if err != nil {
 		return "", err
 	}
