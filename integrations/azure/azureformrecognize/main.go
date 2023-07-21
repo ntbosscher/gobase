@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
+	"github.com/ntbosscher/gobase/currency"
 	"github.com/ntbosscher/gobase/env"
+	"github.com/ntbosscher/gobase/er"
 	"io"
 	"net/url"
 	"time"
@@ -44,6 +46,13 @@ const (
 
 	// PrebuiltTaxUsW2 extract key information from IRS US W2 tax forms (year 2018-2021).
 	PrebuiltTaxUsW2 = "prebuilt-tax.us.w2"
+)
+
+const (
+	StatusFailed     = "failed"
+	StatusRunning    = "running"
+	StatusSucceeded  = "succeeded"
+	StatusNotStarted = "notStarted"
 )
 
 func init() {
@@ -153,7 +162,46 @@ type JobResult struct {
 }
 
 type AnalyzeResult struct {
-	Tables []*AnalyzeTable
+	Tables  []*AnalyzeTable
+	Receipt *AnalyzeReceipt
+}
+
+type AnalyzeReceipt struct {
+	MerchantName        string
+	MerchantPhoneNumber string
+	MerchantAddress     string
+	Total               CurrencyString
+	TransactionDate     time.Time
+	TransactionTime     time.Time
+	Subtotal            CurrencyString
+	TotalTax            CurrencyString
+	Tip                 CurrencyString
+	Items               []*AnalyzeReceiptItem
+	TaxDetails          []*AnalyzeReceiptTaxItem
+}
+
+type AnalyzeReceiptTaxItem struct {
+	Amount CurrencyString
+}
+
+type AnalyzeReceiptItem struct {
+	TotalPrice   CurrencyString
+	Description  string
+	Quantity     float64
+	Price        CurrencyString
+	ProductCode  string
+	QuantityUnit string
+}
+
+type CurrencyString string
+
+func (c CurrencyString) Cents() (currency.Cents, error) {
+	return currency.Parse(string(c))
+}
+func (c CurrencyString) MustGetCents() currency.Cents {
+	value, err := currency.Parse(string(c))
+	er.Check(err)
+	return value
 }
 
 type AnalyzeTable struct {
