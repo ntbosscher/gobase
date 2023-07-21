@@ -188,8 +188,30 @@ type JobResult struct {
 }
 
 type AnalyzeResult struct {
-	Tables  []*AnalyzeTable
-	Receipt *AnalyzeReceipt
+	Tables    []*AnalyzeTable
+	Documents []*AnalyzeDocument
+}
+
+type AnalyzeDocument struct {
+	DocType string
+	Fields  map[string]*AnalyzeDocumentField
+}
+
+type AnalyzeDocumentField struct {
+	Type             string
+	ValueArray       []*AnalyzeDocumentField
+	ValueObject      map[string]*AnalyzeDocumentField
+	ValueString      string
+	ValueNumber      float64
+	ValuePhoneNumber string
+	ValueCurrency    *ValueCurrency
+	Content          string
+	Confidence       float64
+}
+
+type ValueCurrency struct {
+	CurrencySymbol string
+	Amount         float64
 }
 
 type AnalyzeReceipt struct {
