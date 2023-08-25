@@ -207,3 +207,16 @@ func Remove(key string) error {
 func sanitizeDownloadFileName(fileName string) string {
 	return strings.Replace(fileName, ",", "", -1)
 }
+
+// SetPermission updates the object's permission to the canned acl (see https://docs.aws.amazon.com/AmazonS3/latest/userguide/acl-overview.html#canned-acl)
+func SetPermission(ctx context.Context, key string, cannedACL string) error {
+	s3svc := s3.New(sess())
+
+	_, err := s3svc.PutObjectAclWithContext(ctx, &s3.PutObjectAclInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+		ACL:    aws.String(cannedACL),
+	})
+
+	return err
+}
