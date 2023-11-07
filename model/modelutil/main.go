@@ -7,6 +7,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"github.com/Masterminds/squirrel"
+	"github.com/lib/pq"
 	"github.com/ntbosscher/gobase/encoding/tsv"
 	"github.com/ntbosscher/gobase/model"
 	"github.com/ntbosscher/gobase/model/squtil"
@@ -242,4 +243,14 @@ func PrintTable(ctx context.Context, query string, args ...interface{}) {
 	}
 
 	wr.Flush()
+}
+
+// PqArray fixes the nil case with pq.Array where pq.Array interprets it as a sql null.
+// PqArray on the other hand treats a nil array as an empty array. (i.e. [])
+func PqArray[T any](input []T) interface{} {
+	if len(input) == 0 {
+		input = []T{}
+	}
+
+	return pq.Array(input)
 }
