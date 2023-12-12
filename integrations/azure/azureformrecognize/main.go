@@ -63,7 +63,7 @@ func init() {
 	verbose = env.OptionalBool("AZURE_FORM_RECOGNIZE_VERBOSE", false)
 	module := env.Optional("AZURE_FORM_RECOGNIZE_TRACE_MODULE_NAME", "gobase_azureformrecognize")
 	version := env.Optional("AZURE_FORM_RECOGNIZE_TRACE_MODULE_VERSION", "v1.0")
-	apiVersion = env.Optional("AZURE_FORM_RECOGNIZE_API_VERSION", "2023-02-28-preview")
+	apiVersion = env.Optional("AZURE_FORM_RECOGNIZE_API_VERSION", "2023-07-31")
 	azureEndpoint = env.Require("AZURE_FORM_RECOGNIZE_ENDPOINT") // e.g. hardwaresched.cognitiveservices.azure.com
 
 	conOptions := &azcore.ClientOptions{}
