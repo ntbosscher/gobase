@@ -7,8 +7,11 @@ import (
 )
 
 type corsMiddleware struct {
-	allowedOrigins []string
-	next           http.Handler
+	allowedOrigins   []string
+	next             http.Handler
+	allowHeaders     []string
+	allowCredentials string
+	allowMethods     string
 }
 
 func (c *corsMiddleware) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -21,9 +24,9 @@ func (c *corsMiddleware) ServeHTTP(writer http.ResponseWriter, request *http.Req
 	if match != "" {
 		writer.Header().Set("Access-Control-Allow-Origin", origin)
 		writer.Header().Set("Access-Control-Expose-Headers", "*")
-		writer.Header().Set("Access-Control-Allow-Methods", "*")
-		writer.Header().Set("Access-Control-Allow-Headers", "Authorization, Accept, Origin, X-Apiversion, X-Browserwindowid, X-Timezonename, X-Timezoneoffsetmins, Cookie, Content-Type, Cache-Control")
-		writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		writer.Header().Set("Access-Control-Allow-Methods", c.allowMethods)
+		writer.Header().Set("Access-Control-Allow-Headers", strings.Join(c.allowHeaders, ", "))
+		writer.Header().Set("Access-Control-Allow-Credentials", c.allowCredentials)
 
 		if request.Method == "OPTIONS" {
 			writer.WriteHeader(http.StatusNoContent)
@@ -34,10 +37,52 @@ func (c *corsMiddleware) ServeHTTP(writer http.ResponseWriter, request *http.Req
 	c.next.ServeHTTP(writer, request)
 }
 
-func Wrap(input http.Handler, allowedOrigins []string) http.Handler {
+type WrapOpts struct {
+	AllowOrigins []string
+
+	// AllowHeaders response value
+	// default: Authorization, Accept, Origin, X-Apiversion, X-Browserwindowid, X-Timezonename, X-Timezoneoffsetmins, Cookie, Content-Type, Cache-Control
+	AllowHeaders []string
+
+	// AllowCredentials response value
+	// default: true
+	AllowCredentials string
+
+	// AllowMethods response value
+	// default: *
+	AllowMethods string
+}
+
+func Wrap(input http.Handler, opts WrapOpts) http.Handler {
+
+	if opts.AllowMethods == "" {
+		opts.AllowMethods = "*"
+	}
+
+	if opts.AllowCredentials == "" {
+		opts.AllowCredentials = "true"
+	}
+
+	if opts.AllowHeaders == nil {
+		opts.AllowHeaders = []string{
+			"Authorization",
+			"Accept",
+			"Origin",
+			"X-Apiversion",
+			"X-Browserwindowid",
+			"X-Timezonename",
+			"X-Timezoneoffsetmins",
+			"Cookie",
+			"Content-Type",
+			"Cache-Control",
+		}
+	}
 
 	return &corsMiddleware{
-		allowedOrigins: allowedOrigins,
-		next:           input,
+		allowedOrigins:   opts.AllowOrigins,
+		allowHeaders:     opts.AllowHeaders,
+		allowCredentials: opts.AllowCredentials,
+		allowMethods:     opts.AllowMethods,
+		next:             input,
 	}
 }
