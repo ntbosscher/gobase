@@ -100,6 +100,8 @@ type Config struct {
 	// filters each request after authentication has been checked
 	// default: nil
 	PerRequestFilter PerRequestFilter
+
+	NotAuthorizedResponder func(rq *res.Request, err error) res.Responder
 }
 
 type PerRequestFilter func(ctx context.Context, r *http.Request, user *auth.UserInfo) error
@@ -267,10 +269,21 @@ func registerHandler(config *Config) func(rq *res.Request) res.Responder {
 }
 
 func authHandler(config *Config) func(rq *res.Request) (res.Responder, context.Context) {
+	notAuthenticatedResponder := config.NotAuthorizedResponder
+	if notAuthenticatedResponder == nil {
+		notAuthenticatedResponder = func(rq *res.Request, err error) res.Responder {
+			if err != nil {
+				return res.NotAuthorized(err.Error())
+			}
+
+			return res.NotAuthorized()
+		}
+	}
+
 	return func(rq *res.Request) (res.Responder, context.Context) {
 		tokenString := cookieOrBearerToken(rq, config.getAccessTokenCookieName())
 		if tokenString == "" {
-			return notAuthenticated, nil
+			return notAuthenticatedResponder(rq, nil), nil
 		}
 
 		user, err := parseJwt(tokenString)
@@ -280,7 +293,7 @@ func authHandler(config *Config) func(rq *res.Request) (res.Responder, context.C
 			}
 
 			if err != nil {
-				return res.NotAuthorized(err.Error()), nil
+				return notAuthenticatedResponder(rq, err), nil
 			}
 		}
 
