@@ -113,6 +113,8 @@ func ScheduleJob(interval time.Duration, callback func()) {
 		// we don't block startup and callbacks with the same interval don't run at exactly the same time
 		<-time.After(interval / time.Duration(randomish.Int(1, 5)))
 
+		wrappedCallback()
+
 		tc := time.NewTicker(interval)
 		defer tc.Stop()
 
