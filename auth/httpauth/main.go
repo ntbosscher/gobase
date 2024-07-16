@@ -357,7 +357,7 @@ func refreshHandler(config *Config) res.HandlerFunc2 {
 			return res.AppError("Failed to create access token: " + err.Error())
 		}
 
-		cookie := &http.Cookie{
+		setPartitionedCookie(rq.Writer(), &http.Cookie{
 			Secure:   !env.IsTesting,
 			Name:     config.getAccessTokenCookieName(),
 			Value:    accessToken,
@@ -365,20 +365,22 @@ func refreshHandler(config *Config) res.HandlerFunc2 {
 			Path:     "/",
 			SameSite: config.SameSite,
 			Domain:   config.Domain,
-		}
-
-		// todo: temporary fix for partitioned cookies, waiting for golang1.23 to drop with partitioned attribute officially supported
-		// http.SetCookie(rq.Writer(), cookie)
-
-		rawCookie := cookie.String()
-		if rawCookie != "" {
-			rawCookie += " Partitioned;"
-			rq.Writer().Header().Add("Set-Cookie", rawCookie)
-		}
+		})
 
 		return res.Ok(map[string]interface{}{
 			"accessToken": accessToken,
 		})
+	}
+}
+
+func setPartitionedCookie(wr http.ResponseWriter, cookie *http.Cookie) {
+	// todo: temporary fix for partitioned cookies, waiting for golang1.23 to drop with partitioned attribute officially supported
+	// http.SetCookie(rq.Writer(), cookie)
+
+	rawCookie := cookie.String()
+	if rawCookie != "" {
+		rawCookie += " Partitioned;"
+		wr.Header().Add("Set-Cookie", rawCookie)
 	}
 }
 
@@ -400,7 +402,7 @@ func setupSession(rq *res.Request, user *auth.UserInfo, config *Config) (info *S
 		return
 	}
 
-	http.SetCookie(rq.Writer(), &http.Cookie{
+	setPartitionedCookie(rq.Writer(), &http.Cookie{
 		Secure:   !env.IsTesting,
 		Name:     config.getAccessTokenCookieName(),
 		Value:    accessToken,
@@ -410,7 +412,7 @@ func setupSession(rq *res.Request, user *auth.UserInfo, config *Config) (info *S
 		Domain:   config.Domain,
 	})
 
-	http.SetCookie(rq.Writer(), &http.Cookie{
+	setPartitionedCookie(rq.Writer(), &http.Cookie{
 		Secure:   !env.IsTesting,
 		HttpOnly: true,
 		Name:     config.getRefreshTokenCookieName(),
@@ -502,7 +504,7 @@ func createAccessToken(user *auth.UserInfo, lifetime time.Duration) (token strin
 }
 
 func removeCookies(rq *res.Request, config *Config) {
-	http.SetCookie(rq.Writer(), &http.Cookie{
+	setPartitionedCookie(rq.Writer(), &http.Cookie{
 		Secure:   !env.IsTesting,
 		Name:     config.getAccessTokenCookieName(),
 		MaxAge:   -1,
@@ -511,7 +513,7 @@ func removeCookies(rq *res.Request, config *Config) {
 		Domain:   config.Domain,
 	})
 
-	http.SetCookie(rq.Writer(), &http.Cookie{
+	setPartitionedCookie(rq.Writer(), &http.Cookie{
 		Secure:   !env.IsTesting,
 		Name:     config.getRefreshTokenCookieName(),
 		MaxAge:   -1,
