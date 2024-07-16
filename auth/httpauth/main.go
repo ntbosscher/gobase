@@ -509,23 +509,29 @@ func createAccessToken(user *auth.UserInfo, lifetime time.Duration) (token strin
 }
 
 func removeCookies(rq *res.Request, config *Config) {
-	setPartitionedCookie(rq.Writer(), &http.Cookie{
+	access := &http.Cookie{
 		Secure:   !env.IsTesting,
 		Name:     config.getAccessTokenCookieName(),
 		MaxAge:   -1,
 		Path:     "/",
 		SameSite: config.SameSite,
 		Domain:   config.Domain,
-	})
+	}
 
-	setPartitionedCookie(rq.Writer(), &http.Cookie{
+	setPartitionedCookie(rq.Writer(), access)
+	http.SetCookie(rq.Writer(), access)
+
+	refresh := &http.Cookie{
 		Secure:   !env.IsTesting,
 		Name:     config.getRefreshTokenCookieName(),
 		MaxAge:   -1,
 		Path:     "/",
 		SameSite: config.SameSite,
 		Domain:   config.Domain,
-	})
+	}
+
+	setPartitionedCookie(rq.Writer(), refresh)
+	http.SetCookie(rq.Writer(), refresh)
 }
 
 func logoutHandler(config *Config) res.HandlerFunc2 {
