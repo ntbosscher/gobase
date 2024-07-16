@@ -27,6 +27,8 @@ require (
 	golang.org/x/exp v0.0.0-20240707233637-46b078467d37
 )
 
+replace github.com/ntbosscher/sqlx v1.4.0 => github.com/ntbosscher/sqlx v1.4.0
+
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.9.0 // indirect
