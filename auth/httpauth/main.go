@@ -379,7 +379,12 @@ func setPartitionedCookie(wr http.ResponseWriter, cookie *http.Cookie) {
 
 	rawCookie := cookie.String()
 	if rawCookie != "" {
-		rawCookie += " Partitioned;"
+		if !strings.HasSuffix(rawCookie, ";") {
+			rawCookie += ";"
+		}
+
+		rawCookie += " Partitioned"
+
 		wr.Header().Add("Set-Cookie", rawCookie)
 	}
 }
