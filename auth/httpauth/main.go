@@ -357,7 +357,7 @@ func refreshHandler(config *Config) res.HandlerFunc2 {
 			return res.AppError("Failed to create access token: " + err.Error())
 		}
 
-		http.SetCookie(rq.Writer(), &http.Cookie{
+		cookie := &http.Cookie{
 			Secure:   !env.IsTesting,
 			Name:     config.getAccessTokenCookieName(),
 			Value:    accessToken,
@@ -365,7 +365,16 @@ func refreshHandler(config *Config) res.HandlerFunc2 {
 			Path:     "/",
 			SameSite: config.SameSite,
 			Domain:   config.Domain,
-		})
+		}
+
+		// todo: temporary fix for partitioned cookies, waiting for golang1.23 to drop with partitioned attribute officially supported
+		// http.SetCookie(rq.Writer(), cookie)
+
+		rawCookie := cookie.String()
+		if rawCookie != "" {
+			rawCookie += " Partitioned;"
+			rq.Writer().Header().Add("Set-Cookie", rawCookie)
+		}
 
 		return res.Ok(map[string]interface{}{
 			"accessToken": accessToken,
