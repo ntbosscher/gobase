@@ -31,6 +31,13 @@ type Config struct {
 	// default: "" (current domain only)
 	Domain string
 
+	// SecureCookies controls whether or not to set the secure flag on http cookies
+	// default: !env.IsTesting
+	SecureCookies *bool
+
+	// PartitionedCookies controls whether or not to set the partitioned flag on http cookies (CHIPS)
+	PartitionedCookies bool
+
 	// SameSite: wether or not to restrict cookies to SameSite
 	// default: http default
 	SameSite http.SameSite
@@ -127,6 +134,11 @@ func Setup(router *res.Router, config Config) *AuthRouter {
 			log.Println("./.jwtkey should contain 2048 random bytes. Run `go run github.com/ntbosscher/gobase/auth/httpauth/jwtgen` to automatically generate one")
 			log.Fatal("failed to read required file ./.jwtkey: " + err.Error())
 		}
+	}
+
+	if config.SecureCookies == nil {
+		secureDefault := !env.IsTesting
+		config.SecureCookies = &secureDefault
 	}
 
 	loginPath := strs.Coalesce(config.LoginPath, defaultLoginEndpoint)
@@ -357,8 +369,8 @@ func refreshHandler(config *Config) res.HandlerFunc2 {
 			return res.AppError("Failed to create access token: " + err.Error())
 		}
 
-		setPartitionedCookie(rq.Writer(), &http.Cookie{
-			Secure:   !env.IsTesting,
+		setCookie(rq.Writer(), config.PartitionedCookies, &http.Cookie{
+			Secure:   *config.SecureCookies,
 			Name:     config.getAccessTokenCookieName(),
 			Value:    accessToken,
 			Expires:  accessTokenExpiry,
@@ -373,7 +385,12 @@ func refreshHandler(config *Config) res.HandlerFunc2 {
 	}
 }
 
-func setPartitionedCookie(wr http.ResponseWriter, cookie *http.Cookie) {
+func setCookie(wr http.ResponseWriter, partitioned bool, cookie *http.Cookie) {
+	if !partitioned {
+		http.SetCookie(wr, cookie)
+		return
+	}
+
 	// todo: temporary fix for partitioned cookies, waiting for golang1.23 to drop with partitioned attribute officially supported
 	// http.SetCookie(rq.Writer(), cookie)
 
@@ -407,8 +424,8 @@ func setupSession(rq *res.Request, user *auth.UserInfo, config *Config) (info *S
 		return
 	}
 
-	setPartitionedCookie(rq.Writer(), &http.Cookie{
-		Secure:   !env.IsTesting,
+	setCookie(rq.Writer(), config.PartitionedCookies, &http.Cookie{
+		Secure:   *config.SecureCookies,
 		Name:     config.getAccessTokenCookieName(),
 		Value:    accessToken,
 		Expires:  accessTokenExpiry,
@@ -417,8 +434,8 @@ func setupSession(rq *res.Request, user *auth.UserInfo, config *Config) (info *S
 		Domain:   config.Domain,
 	})
 
-	setPartitionedCookie(rq.Writer(), &http.Cookie{
-		Secure:   !env.IsTesting,
+	setCookie(rq.Writer(), config.PartitionedCookies, &http.Cookie{
+		Secure:   *config.SecureCookies,
 		HttpOnly: true,
 		Name:     config.getRefreshTokenCookieName(),
 		Value:    refreshToken,
@@ -510,7 +527,7 @@ func createAccessToken(user *auth.UserInfo, lifetime time.Duration) (token strin
 
 func removeCookies(rq *res.Request, config *Config) {
 	access := &http.Cookie{
-		Secure:   !env.IsTesting,
+		Secure:   *config.SecureCookies,
 		Name:     config.getAccessTokenCookieName(),
 		MaxAge:   -1,
 		Path:     "/",
@@ -518,11 +535,12 @@ func removeCookies(rq *res.Request, config *Config) {
 		Domain:   config.Domain,
 	}
 
-	setPartitionedCookie(rq.Writer(), access)
-	http.SetCookie(rq.Writer(), access)
+	// remove both cookie types to prevent collisions during migration
+	setCookie(rq.Writer(), true, access)
+	setCookie(rq.Writer(), false, access)
 
 	refresh := &http.Cookie{
-		Secure:   !env.IsTesting,
+		Secure:   *config.SecureCookies,
 		Name:     config.getRefreshTokenCookieName(),
 		MaxAge:   -1,
 		Path:     "/",
@@ -530,8 +548,8 @@ func removeCookies(rq *res.Request, config *Config) {
 		Domain:   config.Domain,
 	}
 
-	setPartitionedCookie(rq.Writer(), refresh)
-	http.SetCookie(rq.Writer(), refresh)
+	setCookie(rq.Writer(), true, refresh)
+	setCookie(rq.Writer(), false, refresh)
 }
 
 func logoutHandler(config *Config) res.HandlerFunc2 {
