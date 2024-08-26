@@ -2,14 +2,16 @@ package oauth
 
 import (
 	"context"
+	"log"
+	"net/http"
+	"time"
+
 	"github.com/gorilla/sessions"
 	"github.com/markbates/goth"
 	"github.com/markbates/goth/gothic"
 	"github.com/ntbosscher/gobase/auth"
 	"github.com/ntbosscher/gobase/env"
 	"github.com/ntbosscher/gobase/res"
-	"net/http"
-	"time"
 )
 
 type User = goth.User
@@ -49,7 +51,11 @@ func Setup(router *res.Router, config *Config, setupSession setupSessionFunc) {
 
 	goth.UseProviders(config.Providers...)
 
-	key := env.Require("OAUTH_SESSION_SECRET")
+	key := env.Optional("OAUTH_SESSION_SECRET", "")
+	if key == "" {
+		log.Fatal("OAUTH_SESSION_SECRET must be set. If you don't have one, you can generate one with `go run github.com/ntbosscher/gobase/auth/httpauth/oauthgen -len 64`")
+	}
+
 	maxAge := 24 * time.Hour
 
 	store := sessions.NewCookieStore([]byte(key))
