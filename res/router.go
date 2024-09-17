@@ -2,16 +2,17 @@ package res
 
 import (
 	"context"
+	"mime/multipart"
+	"net/http"
+	"strconv"
+	"strings"
+
 	"github.com/gorilla/mux"
 	"github.com/ntbosscher/gobase/apiversion"
 	"github.com/ntbosscher/gobase/env"
 	"github.com/ntbosscher/gobase/er"
 	"github.com/ntbosscher/gobase/integrations/github/githubcd"
 	"github.com/ntbosscher/gobase/strs"
-	"mime/multipart"
-	"net/http"
-	"strconv"
-	"strings"
 )
 
 var Verbose = false
@@ -72,6 +73,10 @@ func (rt *Router) NotFoundHandler(handler http.Handler) {
 }
 
 func (rt *Router) Route(method string, path string, handler HandlerFunc2) {
+	if !strings.HasPrefix(path, "/") {
+		panic("path must start with /")
+	}
+
 	rt.next.Methods(method).Path(path).HandlerFunc(WrapHTTPFunc(handler))
 }
 
