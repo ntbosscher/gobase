@@ -2,11 +2,13 @@ package er
 
 import (
 	"fmt"
-	"github.com/pkg/errors"
-	"log"
 	"net/http"
 	"runtime/debug"
+
+	"github.com/pkg/errors"
 )
+
+var ErrUnknown = errors.New("unknown error (probably thrown by a panic, not er.Check)")
 
 // HandleErrors deals with panics caused by Check and CheckForDecode
 // should call `defer HandleErrors(func(input *HandlerInput) { /* stuff */ })`
@@ -18,7 +20,13 @@ func HandleErrors(callback func(input *HandlerInput)) {
 
 	err, ok := r.(error)
 	if !ok {
-		log.Println("Unknown error: ", r)
+		callback(&HandlerInput{
+			Message:           "Unknown error: " + fmt.Sprint(err),
+			SuggestedHttpCode: 500,
+			StackTrace:        string(debug.Stack()),
+			Error:             ErrUnknown,
+		})
+
 		return
 	}
 
