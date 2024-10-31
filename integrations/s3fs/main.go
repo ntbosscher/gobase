@@ -3,12 +3,6 @@ package s3fs
 import (
 	"context"
 	"errors"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/aws/aws-sdk-go/service/s3/s3manager"
-	"github.com/ntbosscher/gobase/env"
-	errors2 "github.com/pkg/errors"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -16,6 +10,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/ntbosscher/gobase/env"
+	errors2 "github.com/pkg/errors"
 )
 
 var bucket string
@@ -219,4 +220,13 @@ func SetPermission(ctx context.Context, key string, cannedACL string) error {
 	})
 
 	return err
+}
+
+func GetInfo(ctx context.Context, key string) (*s3.HeadObjectOutput, error) {
+	s3svc := s3.New(sess())
+
+	return s3svc.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
 }
