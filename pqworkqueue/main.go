@@ -283,16 +283,6 @@ type WorkerInfo struct {
 	Middleware       []Middleware
 	RetainResultsFor time.Duration
 
-	// StartAfter schedules the job to start after the given time
-	StartAfter time.Time
-
-	// DebounceKey combined with QueueName are used to skip duplicate jobs
-	DebounceKey string
-
-	// DebounceKeepOriginalStart if true, will keep the original startAfter if another (QueueName,DebounceKey) exists
-	// if false, the new deadline will replace the old one
-	DebounceKeepOriginalStart bool
-
 	nActive   int
 	muNActive sync.Mutex
 }
