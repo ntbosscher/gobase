@@ -4,6 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"log"
+	"os"
+	"sync"
+	"time"
+
 	"github.com/gobuffalo/nulls"
 	"github.com/gofrs/uuid"
 	"github.com/jmoiron/sqlx"
@@ -11,10 +16,6 @@ import (
 	"github.com/ntbosscher/gobase/model"
 	"github.com/ntbosscher/gobase/pqshared"
 	"github.com/pkg/errors"
-	"log"
-	"os"
-	"sync"
-	"time"
 )
 
 var addListen chan *WorkerInfo
@@ -27,19 +28,34 @@ func init() {
 	_, err = pqshared.Pool.Exec(context.Background(), `create table if not exists pq_worker_queue (
 		id text not null unique,
 		queue_name text not null,
+		debounce_key text not null,
 		job_arg json not null,
 		result bytea null,
 		created_at timestamp not null,
+		start_after timestamp not null,
 		started_at timestamp null,
 		completed_at timestamp null,
 		retain_until timestamp null
 	);`)
 
+	_, err = pqshared.Pool.Exec(context.Background(), `alter table pq_worker_queue 
+    		add column if not exists debounce_key text not null default '',
+    		add column if not exists start_after timestamp not null default current_timestamp;`)
 	if err != nil {
 		log.Fatal("failed to setup worker table: ", err)
 	}
 
 	_, err = pqshared.Pool.Exec(context.Background(), `create index if not exists ix_pq_worker_queue_retain on pq_worker_queue (retain_until);`)
+	if err != nil {
+		log.Fatal("failed to setup worker table: ", err)
+	}
+
+	_, err = pqshared.Pool.Exec(context.Background(), `create index if not exists ix_pq_worker_queue_pending on pq_worker_queue (queue_name, start_after) where started_at is not null;`)
+	if err != nil {
+		log.Fatal("failed to setup worker table: ", err)
+	}
+
+	_, err = pqshared.Pool.Exec(context.Background(), `create unique index if not exists ix_pq_worker_debounce on pq_worker_queue (queue_name, debounce_key) where started_at is null and debounce_key != '';`)
 	if err != nil {
 		log.Fatal("failed to setup worker table: ", err)
 	}
@@ -150,8 +166,8 @@ func getAndClaimJob(ctx context.Context, queueName string) (id string, message j
 	err = model.QueryRowContext(ctx, `
 		select id, job_arg
 		from pq_worker_queue
-		where queue_name = $1 and started_at is null
-		order by created_at
+		where queue_name = $1 and start_after <= current_timestamp and started_at is null 
+		order by start_after
 		for update skip locked
 		limit 1
 	`, queueName).Scan(&id, &message)
@@ -266,8 +282,19 @@ type WorkerInfo struct {
 	Callback         Worker
 	Middleware       []Middleware
 	RetainResultsFor time.Duration
-	nActive          int
-	muNActive        sync.Mutex
+
+	// StartAfter schedules the job to start after the given time
+	StartAfter time.Time
+
+	// DebounceKey combined with QueueName are used to skip duplicate jobs
+	DebounceKey string
+
+	// DebounceKeepOriginalStart if true, will keep the original startAfter if another (QueueName,DebounceKey) exists
+	// if false, the new deadline will replace the old one
+	DebounceKeepOriginalStart bool
+
+	nActive   int
+	muNActive sync.Mutex
 }
 
 func (w *WorkerInfo) concurrencyCheck() (cancel func(), ok bool) {
@@ -343,6 +370,10 @@ type Queue struct {
 	name string
 }
 
+func (q *Queue) Name() string {
+	return q.name
+}
+
 // Notify triggers the workers to process the new jobs available
 func (q *Queue) Notify() error {
 	_, err := pqshared.Pool.Exec(context.Background(), `select pg_notify('pqworkerqueue', $1)`, q.name)
@@ -365,6 +396,34 @@ func (q *Queue) MustAdd(ctx context.Context, arg interface{}) string {
 // arg must be json-encodable
 // The item will be added using the model package, so it is transaction safe
 func (q *Queue) Add(ctx context.Context, arg interface{}) (string, error) {
+	return q.add(ctx, time.Now().UTC(), "", true, arg)
+}
+
+func (q *Queue) MustAddOpt(ctx context.Context, arg interface{}, opts *AddOption) string {
+	id, err := q.AddOpt(ctx, arg, opts)
+	er.Check(err)
+
+	return id
+}
+
+type AddOption struct {
+	// StartAfter schedules the job to start after the given time
+	StartAfter time.Time
+
+	// DebounceKey combined with QueueName are used to skip duplicate jobs
+	// if DebounceKey is empty, no debouncing will be done
+	DebounceKey string
+
+	// DebounceKeepOriginalStart if true, will keep the original startAfter if another (QueueName,DebounceKey) exists
+	// if false, the new deadline will replace the old one
+	DebounceKeepOriginalStart bool
+}
+
+func (q *Queue) AddOpt(ctx context.Context, arg interface{}, opts *AddOption) (string, error) {
+	return q.add(ctx, opts.StartAfter, opts.DebounceKey, opts.DebounceKeepOriginalStart, arg)
+}
+
+func (q *Queue) add(ctx context.Context, startAfter time.Time, debounceKey string, keepOriginalStart bool, arg interface{}) (string, error) {
 	msg, err := json.Marshal(arg)
 	if err != nil {
 		return "", errors.Wrap(err, "failed to json-encode work-queue arg")
@@ -381,11 +440,33 @@ func (q *Queue) Add(ctx context.Context, arg interface{}) (string, error) {
 		}
 	})
 
-	err = model.ExecContext(ctx, `
-		insert into pq_worker_queue (id, queue_name, job_arg, created_at) 
-		values ($1, $2, $3, $4)`,
-		uuidId.String(), q.name, msg, time.Now().UTC(),
-	)
+	if startAfter.IsZero() {
+		startAfter = time.Now().UTC()
+	}
+
+	if keepOriginalStart {
+		err = model.ExecContext(ctx, `
+			insert into pq_worker_queue (id, queue_name, job_arg, created_at, start_after, debounce_key) 
+			values ($1, $2, $3, $4, $5, $6)
+			on conflict (queue_name, debounce_key) where started_at is null and debounce_key != ''
+			do nothing
+		`,
+			uuidId.String(), q.name, msg, time.Now().UTC(),
+			startAfter, debounceKey,
+		)
+	} else {
+		err = model.ExecContext(ctx, `
+			insert into pq_worker_queue (id, queue_name, job_arg, created_at, start_after, debounce_key) 
+			values ($1, $2, $3, $4, $5, $6)
+			on conflict (queue_name, debounce_key) where started_at is null and debounce_key != ''
+			do update 
+			   set start_after = excluded.start_after
+		`,
+			uuidId.String(), q.name, msg, time.Now().UTC(),
+			startAfter, debounceKey,
+		)
+
+	}
 
 	return uuidId.String(), err
 }

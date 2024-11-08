@@ -3,15 +3,19 @@ package pqworkqueue
 import (
 	"context"
 	"encoding/json"
+	"sync/atomic"
+	"testing"
+	"time"
+
 	"github.com/jmoiron/sqlx"
 	"github.com/ntbosscher/gobase/er"
 	"github.com/ntbosscher/gobase/model"
-	"testing"
-	"time"
 )
 
 func TestBasic(t *testing.T) {
 	model.SetStructNameMapping(model.SnakeCaseStructNameMapping)
+
+	debounceCounter := atomic.Int32{}
 
 	StartWorkers(&WorkerInfo{
 		QueueName: "test-queue",
@@ -23,13 +27,19 @@ func TestBasic(t *testing.T) {
 				return nil
 			}
 
-			if info != "test-info" {
-				t.Fatal("invalid info", info)
+			if info == "test-info" {
+				<-time.After(200 * time.Millisecond)
+				return []byte("result")
 			}
 
-			<-time.After(200 * time.Millisecond)
+			if info == "demo" {
+				debounceCounter.Add(1)
+				<-time.After(200 * time.Millisecond)
+				return []byte("result")
+			}
 
-			return []byte("result")
+			t.Fatal("unexpected info", info)
+			return nil
 		},
 	})
 
@@ -39,6 +49,14 @@ func TestBasic(t *testing.T) {
 	var id string
 	er.Check(model.WithTx(context.Background(), func(ctx context.Context, tx *sqlx.Tx) error {
 		id, err = q.Add(ctx, "test-info")
+
+		for i := 0; i < 10; i++ {
+			q.MustAddOpt(ctx, "demo", &AddOption{
+				DebounceKey:               "test",
+				DebounceKeepOriginalStart: false,
+			})
+		}
+
 		return err
 	}))
 
@@ -78,5 +96,10 @@ func TestBasic(t *testing.T) {
 		if deadline.Before(time.Now()) {
 			t.Fatal("missed deadline")
 		}
+	}
+
+	value := debounceCounter.Load()
+	if value != 1 {
+		t.Fatal("unexpected debounce count", value)
 	}
 }
