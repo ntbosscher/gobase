@@ -35,12 +35,14 @@ func init() {
 		start_after timestamp not null,
 		started_at timestamp null,
 		completed_at timestamp null,
-		retain_until timestamp null
+		retain_until timestamp null,
+		commit_error text null
 	);`)
 
 	_, err = pqshared.Pool.Exec(context.Background(), `alter table pq_worker_queue 
     		add column if not exists debounce_key text not null default '',
-    		add column if not exists start_after timestamp not null default current_timestamp;`)
+    		add column if not exists start_after timestamp not null default current_timestamp,
+    		add column if not exists commit_error text null;`)
 	if err != nil {
 		log.Fatal("failed to setup worker table: ", err)
 	}
@@ -128,19 +130,32 @@ func (w *watcherInfo) startWork(queueName string) (mightBeMore bool) {
 			return err
 		}
 
-		exec := info.Callback
-		for _, item := range info.Middleware {
-			exec = item(exec)
+		var result []byte
+
+		err2 := model.WithTx(context.Background(), func(ctx context.Context, tx *sqlx.Tx) error {
+			exec := info.Callback
+			for _, item := range info.Middleware {
+				exec = item(exec)
+			}
+
+			result = exec(ctx, id, message)
+			return nil
+		})
+
+		commitErr := nulls.String{}
+		if err2 != nil {
+			Logger.Println("failed to process job", err2)
+			commitErr = nulls.NewString(err2.Error())
 		}
 
-		result := exec(ctx, id, message)
 		err = model.ExecContext(ctx, `
 			update pq_worker_queue set
 				result = $1,
 				completed_at = $2,
-				retain_until = $3
-			where id = $4
-		`, result, time.Now().UTC(), time.Now().UTC().Add(info.RetainResultsFor), id)
+				retain_until = $3,
+				commit_error = $4
+			where id = $5
+		`, result, time.Now().UTC(), time.Now().UTC().Add(info.RetainResultsFor), commitErr, id)
 
 		if err != nil {
 			Logger.Println("failed to store result:", err)
