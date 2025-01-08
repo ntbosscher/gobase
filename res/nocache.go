@@ -9,7 +9,7 @@ var epoch = time.Unix(0, 0).Format(time.RFC1123)
 
 var noCacheHeaders = map[string]string{
 	"Expires":         epoch,
-	"Cache-Control":   "no-cache, private, max-age=0",
+	"Cache-Control":   "no-store, no-cache, must-revalidate, max-age=0",
 	"Pragma":          "no-cache",
 	"X-Accel-Expires": "0",
 }
