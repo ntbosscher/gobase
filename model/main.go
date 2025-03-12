@@ -4,15 +4,16 @@ package model
 import (
 	"context"
 	"errors"
-	_ "github.com/go-sql-driver/mysql"
-	_ "github.com/jackc/pgx/v4"
-	"github.com/jmoiron/sqlx"
-	"github.com/ntbosscher/gobase/env"
 	"io/ioutil"
 	"log"
 	"os"
 	"sync"
 	"time"
+
+	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/jackc/pgx/v4"
+	"github.com/jmoiron/sqlx"
+	"github.com/ntbosscher/gobase/env"
 )
 
 var defaultDb *sqlx.DB
@@ -127,7 +128,17 @@ func OnTransactionCommitted(ctx context.Context, callback func()) {
 		return
 	}
 
-	tx.callbacks = append(tx.callbacks, callback)
+	tx.commitCallbacks = append(tx.commitCallbacks, callback)
+}
+
+func OnTransactionRolledBackOrCommitFailed(ctx context.Context, callback func()) {
+	tx := getInfo(ctx)
+	if tx.commitCalled {
+		callback()
+		return
+	}
+
+	tx.rollbackOrCommitErrCallbacks = append(tx.rollbackOrCommitErrCallbacks, callback)
 }
 
 // NewConnection creates a new database connection. If you are attempting to use other model functions

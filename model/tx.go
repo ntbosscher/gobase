@@ -3,15 +3,17 @@ package model
 import (
 	"context"
 	"errors"
+
 	"github.com/jmoiron/sqlx"
-	"log"
 )
 
 type txInfo struct {
-	commitCalled bool
-	traceId      string
-	tx           *sqlx.Tx
-	callbacks    []func()
+	commitCalled                 bool
+	rollbackCalled               bool
+	traceId                      string
+	tx                           *sqlx.Tx
+	commitCallbacks              []func()
+	rollbackOrCommitErrCallbacks []func()
 }
 
 func BeginTx(ctx context.Context, traceId string) (context.Context, func(), error) {
@@ -23,10 +25,12 @@ func BeginTx(ctx context.Context, traceId string) (context.Context, func(), erro
 	debugLogger().Println("starting", traceId)
 
 	ctx = context.WithValue(ctx, transactionContextKey, &txInfo{
-		commitCalled: false,
-		tx:           tx,
-		traceId:      traceId,
-		callbacks:    []func(){},
+		commitCalled:                 false,
+		rollbackCalled:               false,
+		tx:                           tx,
+		traceId:                      traceId,
+		commitCallbacks:              []func(){},
+		rollbackOrCommitErrCallbacks: []func(){},
 	})
 
 	cleanup := func() {
@@ -36,11 +40,11 @@ func BeginTx(ctx context.Context, traceId string) (context.Context, func(), erro
 			return // nothing to do
 		}
 
-		debugLogger().Println("rollback", traceId)
-
-		if err := tx.Rollback(); err != nil {
-			log.Println(err)
+		if info.rollbackCalled {
+			return // nothing to do
 		}
+
+		_ = Rollback(ctx)
 	}
 
 	return ctx, cleanup, nil
@@ -66,8 +70,15 @@ func Rollback(ctx context.Context) error {
 	}
 
 	info.commitCalled = true
+	info.rollbackCalled = true
 	debugLogger().Println("rollback", info.traceId)
-	return info.tx.Rollback()
+	err := info.tx.Rollback()
+
+	for _, callback := range info.rollbackOrCommitErrCallbacks {
+		callback()
+	}
+
+	return err
 }
 
 var errCommitAlreadyCalled = errors.New("transaction already closed")
@@ -82,10 +93,14 @@ func Commit(ctx context.Context) error {
 	debugLogger().Println("commit", info.traceId)
 	err := info.tx.Commit()
 	if err != nil {
+		for _, callback := range info.rollbackOrCommitErrCallbacks {
+			callback()
+		}
+
 		return err
 	}
 
-	for _, callback := range info.callbacks {
+	for _, callback := range info.commitCallbacks {
 		callback()
 	}
 

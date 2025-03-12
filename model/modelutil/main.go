@@ -6,16 +6,17 @@ import (
 	"encoding/base64"
 	"encoding/csv"
 	"fmt"
-	"github.com/Masterminds/squirrel"
-	"github.com/lib/pq"
-	"github.com/ntbosscher/gobase/encoding/tsv"
-	"github.com/ntbosscher/gobase/model"
-	"github.com/ntbosscher/gobase/model/squtil"
 	"os"
 	"reflect"
 	"strings"
 	"text/tabwriter"
 	"time"
+
+	"github.com/Masterminds/squirrel"
+	"github.com/lib/pq"
+	"github.com/ntbosscher/gobase/encoding/tsv"
+	"github.com/ntbosscher/gobase/model"
+	"github.com/ntbosscher/gobase/model/squtil"
 )
 
 type Table struct {
