@@ -3,11 +3,17 @@ package modelutil
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
 	"encoding/base64"
 	"encoding/csv"
+	"encoding/hex"
 	"fmt"
+	"log"
+	"net/http"
+	"net/url"
 	"os"
 	"reflect"
+	"regexp"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -15,7 +21,11 @@ import (
 	"github.com/Masterminds/squirrel"
 	"github.com/lib/pq"
 	"github.com/ntbosscher/gobase/encoding/tsv"
+	"github.com/ntbosscher/gobase/env"
+	"github.com/ntbosscher/gobase/er"
+	"github.com/ntbosscher/gobase/jv"
 	"github.com/ntbosscher/gobase/model"
+	"github.com/ntbosscher/gobase/model/modelperf"
 	"github.com/ntbosscher/gobase/model/squtil"
 )
 
@@ -139,6 +149,186 @@ func containsFieldName(list []string, test string) bool {
 	return false
 }
 
+var regexpReplace = regexp.MustCompile("\\$[0-9]+")
+
+func PrintDebugSQL(qr squirrel.SelectBuilder) {
+	sql, args, _ := qr.ToSql()
+
+	strs := map[string]string{}
+
+	for i, arg := range args {
+		value := ""
+
+		switch v := arg.(type) {
+		case string:
+			value = fmt.Sprintf("'%s'", v)
+		default:
+			value = fmt.Sprint(v)
+		}
+
+		strs[fmt.Sprintf("$%d", i+1)] = value
+	}
+
+	sql = regexpReplace.ReplaceAllStringFunc(sql, func(s string) string {
+		value, ok := strs[s]
+		if !ok {
+			return s
+		}
+
+		return value
+	})
+
+	fmt.Println(sql)
+}
+
+var runPerf = env.OptionalBool("DEBUG_PERF", false)
+
+func PerfMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Header.Get("X-Debug-Perf") == "" && !runPerf {
+			next.ServeHTTP(w, req)
+			return
+		}
+
+		ctx, cancel, perf := modelperf.New(req.Context(), &modelperf.PerfInput{})
+		defer cancel()
+
+		req = req.WithContext(ctx)
+		next.ServeHTTP(w, req)
+
+		sum := perf.GetSummaries()
+
+		urlCopy, _ := url.Parse(req.URL.String())
+		urlCopy.RawQuery = ""
+
+		select {
+		case perfC <- &PerfInfo{
+			Request: req.Method + " " + urlCopy.String(),
+			Info:    sum,
+		}:
+		default:
+		}
+	})
+}
+
+type PerfInfo struct {
+	Request string
+	Info    []*modelperf.Summary
+}
+
+var perfC = make(chan *PerfInfo, 100)
+
+func init() {
+	go func() {
+		defer er.HandleErrors(func(input *er.HandlerInput) {
+			log.Println(input)
+		})
+
+		merged := map[string][]*PerfInfo{}
+		tc := time.NewTicker(5 * time.Second)
+
+		defer tc.Stop()
+
+		changed := false
+
+		for {
+			select {
+			case p := <-perfC:
+				merged[p.Request] = append(merged[p.Request], p)
+				changed = true
+			case <-tc.C:
+				if !changed {
+					continue
+				}
+
+				printPerfMap(merged)
+			}
+		}
+	}()
+}
+
+func ellipsis(qr string, max int) string {
+	if len(qr) <= max {
+		return qr
+	}
+
+	return qr[:max] + "..."
+
+}
+
+func printPerfMap(merged map[string][]*PerfInfo) {
+	buf := &bytes.Buffer{}
+
+	queries := map[string]string{}
+
+	list := jv.GetMapValues(merged)
+
+	list = jv.Reverse(jv.SortFx(list, func(a []*PerfInfo) float64 {
+		times := jv.Mapper(a, func(a *PerfInfo) time.Duration {
+			sum := time.Duration(0)
+
+			for _, item := range a.Info {
+				sum += item.TotalDuration
+			}
+
+			return sum
+		})
+
+		worstTime := time.Duration(0)
+		for _, tm := range times {
+			if tm > worstTime {
+				worstTime = tm
+			}
+		}
+
+		return float64(worstTime)
+	}))
+
+	for _, infos := range list {
+		buf.WriteString("------------------------------------------------------\n")
+		buf.WriteString(infos[0].Request + "\n")
+
+		have := map[string]bool{}
+
+		sum := []*modelperf.Summary{}
+		for _, item := range infos {
+			sum = append(sum, item.Info...)
+		}
+
+		sum = jv.Reverse(jv.SortFx(sum, func(a *modelperf.Summary) float64 {
+			return float64(a.TotalDuration)
+		}))
+
+		for _, qr := range sum {
+			if have[qr.Query] {
+				continue
+			}
+
+			fmt.Fprintln(buf, ellipsis(qr.Query, 200))
+			hash := md5.Sum([]byte(qr.Query))
+			hashStr := hex.EncodeToString(hash[:])
+			fmt.Fprintln(buf, hashStr)
+			queries[hashStr] = qr.Query
+
+			for _, item := range sum {
+				if item.Query == qr.Query {
+					fmt.Fprintln(buf, "avg", qr.AverageDuration.String(), "count", qr.CallCount, "total", qr.TotalDuration.String())
+				}
+			}
+
+			have[qr.Query] = true
+		}
+	}
+
+	for hash, item := range queries {
+		fmt.Fprintln(buf, "------------------------------------------------------")
+		fmt.Fprintln(buf, hash)
+		fmt.Fprintln(buf, item)
+	}
+
+	os.WriteFile("/tmp/perf.txt", buf.Bytes(), 0644)
+}
+
 func InsertStruct(ctx context.Context, table string, value interface{}, ignoreFields ...string) int {
 
 	insert := squirrel.Eq{}
@@ -232,9 +422,7 @@ func UpdateStructWL(ctx context.Context, table string, value interface{}, id int
 
 func PrintTable(ctx context.Context, query string, args ...interface{}) {
 	tbl, err := SelectTable(ctx, query, args...)
-	if err != nil {
-		return
-	}
+	er.Check(err)
 
 	wr := tabwriter.NewWriter(os.Stdout, 4, 1, 1, ' ', 0)
 	cols := tsv.NewEncoder(wr)
