@@ -1,6 +1,8 @@
 module github.com/ntbosscher/gobase
 
-go 1.18
+go 1.23.0
+
+toolchain go1.23.2
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.12.0
