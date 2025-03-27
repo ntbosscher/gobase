@@ -57,7 +57,13 @@ func init() {
 		log.Fatal("failed to setup worker table: ", err)
 	}
 
-	_, err = pqshared.Pool.Exec(context.Background(), `create unique index if not exists ix_pq_worker_debounce on pq_worker_queue (queue_name, debounce_key) where started_at is null and debounce_key != '';`)
+	// no longer want unique index
+	_, err = pqshared.Pool.Exec(context.Background(), `drop index if exists ix_pq_worker_debounce;`)
+	if err != nil {
+		log.Fatal("failed to setup worker table: ", err)
+	}
+
+	_, err = pqshared.Pool.Exec(context.Background(), `create index if not exists ix_pq_worker_queue_id on pq_worker_queue (id);`)
 	if err != nil {
 		log.Fatal("failed to setup worker table: ", err)
 	}
@@ -80,10 +86,13 @@ func watcher() {
 		listeningFor: map[string]*WorkerInfo{},
 	}
 
+	signalTimers := make(chan bool)
+
 	go w.addNewListeners()
+	go w.checkWorkBasedOnTimers(signalTimers)
 
 	for {
-		waitForNotification(context.Background(), w.processWork)
+		waitForNotification(context.Background(), w.processWork, signalTimers)
 
 		// delay re-setting up connection b/c this is either a network or infrastructure issue
 		<-time.After(1 * time.Second)
@@ -181,11 +190,11 @@ func getAndClaimJob(ctx context.Context, queueName string) (id string, message j
 	err = model.QueryRowContext(ctx, `
 		select id, job_arg
 		from pq_worker_queue
-		where queue_name = $1 and start_after <= current_timestamp and started_at is null 
+		where queue_name = $1 and start_after <= $2 and started_at is null 
 		order by start_after
 		for update skip locked
 		limit 1
-	`, queueName).Scan(&id, &message)
+	`, queueName, time.Now().UTC()).Scan(&id, &message)
 
 	if err != nil {
 		return
@@ -201,7 +210,7 @@ func getAndClaimJob(ctx context.Context, queueName string) (id string, message j
 
 func (w *watcherInfo) addNewListeners() {
 	er.HandleErrors(func(input *er.HandlerInput) {
-		log.Println(input.Error, input.StackTrace)
+		Logger.Println(input.Error, input.StackTrace)
 	})
 
 	for {
@@ -213,6 +222,64 @@ func (w *watcherInfo) addNewListeners() {
 
 		go w.processWork(info.QueueName)
 	}
+}
+
+func (w *watcherInfo) checkWorkBasedOnTimers(checkC chan bool) {
+	defer er.HandleErrors(func(input *er.HandlerInput) {
+		Logger.Println(input.Error, input.StackTrace)
+	})
+
+	timer := time.NewTimer(time.Second)
+	nextPredictedStart := time.Now().Add(time.Second)
+	name := ""
+
+	for {
+		timer.Reset(nextPredictedStart.Sub(time.Now()))
+
+		select {
+		case <-checkC:
+		case <-timer.C:
+			if name != "" {
+				w.processWork(name)
+			}
+		}
+
+		var ok bool
+		nextPredictedStart, name, ok = w.getPredictedStart()
+		if !ok {
+			nextPredictedStart = time.Now().Add(time.Hour)
+		}
+	}
+}
+
+func (w *watcherInfo) getPredictedStart() (time.Time, string, bool) {
+	info := &struct {
+		QueueName  string    `db:"queue_name"`
+		StartAfter time.Time `db:"start_after"`
+	}{}
+	ctx := context.Background()
+
+	err := model.WithTx(ctx, func(ctx context.Context, tx *sqlx.Tx) error {
+		return model.GetContext(ctx, info, `
+			select queue_name, min(start_after) "start_after"
+			from pq_worker_queue 
+			where started_at is null
+			group by queue_name
+			order by min(start_after) asc
+			limit 1
+		`)
+	})
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return time.Time{}, "", false
+		} else {
+			Logger.Println("failed to get predicted start time", err)
+			return time.Time{}, "", false
+		}
+	}
+
+	return info.StartAfter.Local(), info.QueueName, true
 }
 
 func cleaner() {
@@ -235,7 +302,7 @@ func cleaner() {
 
 var Logger = log.New(os.Stderr, "pqworkerqueue", log.Llongfile)
 
-func waitForNotification(ctx context.Context, callback func(queueName string)) {
+func waitForNotification(ctx context.Context, callback func(queueName string), signalC chan bool) {
 	conn, err := pqshared.Pool.Acquire(ctx)
 	if err != nil {
 		Logger.Println(err)
@@ -258,6 +325,11 @@ func waitForNotification(ctx context.Context, callback func(queueName string)) {
 		}
 
 		callback(notif.Payload)
+
+		select {
+		case signalC <- true:
+		default:
+		}
 	}
 }
 
@@ -401,7 +473,7 @@ func (q *Queue) MustAdd(ctx context.Context, arg interface{}) string {
 // arg must be json-encodable
 // The item will be added using the model package, so it is transaction safe
 func (q *Queue) Add(ctx context.Context, arg interface{}) (string, error) {
-	return q.add(ctx, time.Now().UTC(), "", true, arg)
+	return q.add(ctx, time.Now().UTC(), "", true, nil, arg)
 }
 
 func (q *Queue) MustAddOpt(ctx context.Context, arg interface{}, opts *AddOption) string {
@@ -415,20 +487,26 @@ type AddOption struct {
 	// StartAfter schedules the job to start after the given time
 	StartAfter time.Time
 
-	// DebounceKey combined with QueueName are used to skip duplicate jobs
+	// DebounceKey combined with QueueName are used to skip duplicate jobs.
+	// DebounceKey does not guarantee that a job won't be run twice, but ensures it doesn't happen during the normal
+	// course of things. If a job is run twice, it will be because the first job was in progress or being updated by
+	// another transaction when the second job was added.
+	//
 	// if DebounceKey is empty, no debouncing will be done
 	DebounceKey string
 
 	// DebounceKeepOriginalStart if true, will keep the original startAfter if another (QueueName,DebounceKey) exists
 	// if false, the new deadline will replace the old one
 	DebounceKeepOriginalStart bool
+
+	DebounceMerge func(a []byte, b []byte) ([]byte, error)
 }
 
 func (q *Queue) AddOpt(ctx context.Context, arg interface{}, opts *AddOption) (string, error) {
-	return q.add(ctx, opts.StartAfter, opts.DebounceKey, opts.DebounceKeepOriginalStart, arg)
+	return q.add(ctx, opts.StartAfter, opts.DebounceKey, opts.DebounceKeepOriginalStart, opts.DebounceMerge, arg)
 }
 
-func (q *Queue) add(ctx context.Context, startAfter time.Time, debounceKey string, keepOriginalStart bool, arg interface{}) (string, error) {
+func (q *Queue) add(ctx context.Context, startAfter time.Time, debounceKey string, keepOriginalStart bool, debounceMerge func(a []byte, b []byte) ([]byte, error), arg interface{}) (string, error) {
 	msg, err := json.Marshal(arg)
 	if err != nil {
 		return "", errors.Wrap(err, "failed to json-encode work-queue arg")
@@ -447,30 +525,116 @@ func (q *Queue) add(ctx context.Context, startAfter time.Time, debounceKey strin
 
 	if startAfter.IsZero() {
 		startAfter = time.Now().UTC()
+	} else {
+		startAfter = startAfter.UTC()
+	}
+
+	if debounceKey == "" {
+		err = model.ExecContext(ctx, `
+			insert into pq_worker_queue (id, queue_name, job_arg, created_at, start_after, debounce_key) 
+			values ($1, $2, $3, $4, $5, $6)
+		`,
+			uuidId.String(), q.name, msg, time.Now().UTC(),
+			startAfter, debounceKey,
+		)
+
+		return uuidId.String(), err
+	}
+
+	if debounceMerge != nil {
+		if debounceKey == "" {
+			return "", errors.New("debounceMerge requires a debounceKey")
+		}
+
+		obj := struct {
+			ID         string    `db:"id"`
+			JobArg     []byte    `db:"job_arg"`
+			StartAfter time.Time `db:"start_after"`
+		}{}
+
+		err = model.GetContext(ctx, &obj, `
+			with existing as (
+			    select id, job_arg, start_after
+			    from pq_worker_queue
+			    where queue_name = $2 and debounce_key = $6 and started_at is null
+			    limit 1
+			    for update skip locked
+			), new as (
+			    insert into pq_worker_queue (id, queue_name, job_arg, created_at, start_after, debounce_key) 
+				select $1, $2, $3, $4, $5, $6
+				where (select count(*) from existing) = 0
+			)
+			select id, job_arg, start_after
+			from existing
+		`,
+			uuidId.String(), q.name, msg, time.Now().UTC(),
+			startAfter, debounceKey,
+		)
+
+		if err != nil {
+			// created new job
+			if errors.Is(err, sql.ErrNoRows) {
+				return uuidId.String(), nil
+			}
+
+			return "", err
+		}
+
+		merged, err2 := debounceMerge(obj.JobArg, msg)
+		if err2 != nil {
+			return "", err2
+		}
+
+		if !keepOriginalStart {
+			obj.StartAfter = startAfter
+		}
+
+		err = model.ExecContext(ctx, `
+			update pq_worker_queue 
+			set job_arg = $1, start_after = $2 
+			where id = $3`,
+			merged, obj.StartAfter, obj.ID)
+
+		return obj.ID, err
 	}
 
 	if keepOriginalStart {
 		err = model.ExecContext(ctx, `
+			with existing as (
+			    select id, job_arg, start_after
+			    from pq_worker_queue
+			    where queue_name = $2 and debounce_key = $6 and $6 != '' and started_at is null
+			    limit 1
+			    for update skip locked
+			)
 			insert into pq_worker_queue (id, queue_name, job_arg, created_at, start_after, debounce_key) 
-			values ($1, $2, $3, $4, $5, $6)
-			on conflict (queue_name, debounce_key) where started_at is null and debounce_key != ''
-			do nothing
+			select $1, $2, $3, $4, $5, $6
+			where (select count(*) from existing) = 0
 		`,
 			uuidId.String(), q.name, msg, time.Now().UTC(),
 			startAfter, debounceKey,
 		)
 	} else {
 		err = model.ExecContext(ctx, `
-			insert into pq_worker_queue (id, queue_name, job_arg, created_at, start_after, debounce_key) 
-			values ($1, $2, $3, $4, $5, $6)
-			on conflict (queue_name, debounce_key) where started_at is null and debounce_key != ''
-			do update 
-			   set start_after = excluded.start_after
+			with existing as (
+			    select id, job_arg, start_after
+			    from pq_worker_queue
+			    where queue_name = $2 and debounce_key = $6 and $6 != '' and started_at is null
+			    limit 1
+			    for update skip locked
+			), new as (
+			    insert into pq_worker_queue (id, queue_name, job_arg, created_at, start_after, debounce_key) 
+				select $1, $2, $3, $4, $5, $6
+				where (select count(*) from existing) = 0
+			)
+			update pq_worker_queue 
+		    set start_after = $5
+			from existing
+			where existing.id = pq_worker_queue.id
 		`,
 			uuidId.String(), q.name, msg, time.Now().UTC(),
 			startAfter, debounceKey,
 		)
-
 	}
 
 	return uuidId.String(), err
