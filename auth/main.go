@@ -2,17 +2,18 @@ package auth
 
 import (
 	"context"
-	"github.com/gobuffalo/nulls"
-	"github.com/golang-jwt/jwt"
 	"math"
 	"unsafe"
+
+	"github.com/gobuffalo/nulls"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 type Minutes int
 
 type UserInfo struct {
 	TimeZoneOffset Minutes
-	jwt.StandardClaims
+	jwt.RegisteredClaims
 	UserID    int
 	CompanyID int
 	Role      TRole

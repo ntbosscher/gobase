@@ -1,10 +1,11 @@
 package httpauth
 
 import (
-	"github.com/golang-jwt/jwt"
-	"github.com/ntbosscher/gobase/auth"
 	"testing"
 	"time"
+
+	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/ntbosscher/gobase/auth"
 )
 
 func TestAccessToken(t *testing.T) {

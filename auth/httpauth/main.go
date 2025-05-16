@@ -4,17 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/golang-jwt/jwt"
-	"github.com/ntbosscher/gobase/auth"
-	"github.com/ntbosscher/gobase/auth/httpauth/oauth"
-	"github.com/ntbosscher/gobase/env"
-	"github.com/ntbosscher/gobase/res"
-	"github.com/ntbosscher/gobase/strs"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/ntbosscher/gobase/auth"
+	"github.com/ntbosscher/gobase/auth/httpauth/oauth"
+	"github.com/ntbosscher/gobase/env"
+	"github.com/ntbosscher/gobase/res"
+	"github.com/ntbosscher/gobase/strs"
 )
 
 // jwtKey setup during first call to Setup()
@@ -500,7 +501,7 @@ func createRefreshToken(user *auth.UserInfo, lifetime time.Duration) (token stri
 		expiry = time.Now().Add(lifetime)
 	}
 
-	user.StandardClaims.ExpiresAt = expiry.Unix()
+	user.RegisteredClaims.ExpiresAt = jwt.NewNumericDate(expiry)
 
 	tokenObj := jwt.NewWithClaims(jwt.SigningMethodHS256, user)
 	token, err = tokenObj.SignedString(jwtKey)
@@ -518,7 +519,7 @@ func createAccessToken(user *auth.UserInfo, lifetime time.Duration) (token strin
 		expiry = time.Now().Add(lifetime)
 	}
 
-	user.StandardClaims.ExpiresAt = expiry.Unix()
+	user.RegisteredClaims.ExpiresAt = jwt.NewNumericDate(expiry)
 
 	tokenObj := jwt.NewWithClaims(jwt.SigningMethodHS256, user)
 	token, err = tokenObj.SignedString(jwtKey)
