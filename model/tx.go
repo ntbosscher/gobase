@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 
 	"github.com/jmoiron/sqlx"
@@ -16,19 +17,25 @@ type txInfo struct {
 	rollbackOrCommitErrCallbacks []func()
 }
 
-func BeginTx(ctx context.Context, traceId string) (context.Context, func(), error) {
-	tx, err := startTx(ctx)
+type BeginTx2Options struct {
+	TraceID        string
+	IsolationLevel sql.IsolationLevel
+	Readonly       bool
+}
+
+func BeginTx2(ctx context.Context, opts *BeginTx2Options) (context.Context, func(), error) {
+	tx, err := startTx(ctx, &sql.TxOptions{Isolation: opts.IsolationLevel, ReadOnly: opts.Readonly})
 	if err != nil {
 		return nil, nil, err
 	}
 
-	debugLogger().Println("starting", traceId)
+	debugLogger().Println("starting", opts.TraceID)
 
 	ctx = context.WithValue(ctx, transactionContextKey, &txInfo{
 		commitCalled:                 false,
 		rollbackCalled:               false,
 		tx:                           tx,
-		traceId:                      traceId,
+		traceId:                      opts.TraceID,
 		commitCallbacks:              []func(){},
 		rollbackOrCommitErrCallbacks: []func(){},
 	})
@@ -48,6 +55,12 @@ func BeginTx(ctx context.Context, traceId string) (context.Context, func(), erro
 	}
 
 	return ctx, cleanup, nil
+}
+
+func BeginTx(ctx context.Context, traceId string) (context.Context, func(), error) {
+	return BeginTx2(ctx, &BeginTx2Options{
+		TraceID: traceId,
+	})
 }
 
 func Tx(ctx context.Context) *sqlx.Tx {
@@ -107,8 +120,8 @@ func Commit(ctx context.Context) error {
 	return nil
 }
 
-func startTx(ctx context.Context) (*sqlx.Tx, error) {
-	tx, err := getDb(ctx).BeginTxx(ctx, nil)
+func startTx(ctx context.Context, opts *sql.TxOptions) (*sqlx.Tx, error) {
+	tx, err := getDb(ctx).BeginTxx(ctx, opts)
 	if err != nil {
 		return nil, err
 	}

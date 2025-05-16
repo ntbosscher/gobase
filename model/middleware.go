@@ -2,8 +2,10 @@ package model
 
 import (
 	"context"
-	"github.com/gorilla/websocket"
+	"database/sql"
 	"net/http"
+
+	"github.com/gorilla/websocket"
 )
 
 // AttachTxHandler starts a database transaction so that
@@ -17,13 +19,33 @@ func AttachTxHandler(ignorePaths ...string) func(withTx http.Handler) http.Handl
 	}
 }
 
+type AttachTxHandlerOpts struct {
+	IgnorePaths    []string
+	IsolationLevel sql.IsolationLevel
+	Readonly       bool
+}
+
+func AttachTxHandler2(opts *AttachTxHandlerOpts) func(withTx http.Handler) http.Handler {
+	return func(withTx http.Handler) http.Handler {
+		return &txRouter{
+			withTx:      withTx,
+			ignorePaths: opts.IgnorePaths,
+			transactionOptions: &BeginTx2Options{
+				IsolationLevel: opts.IsolationLevel,
+				Readonly:       opts.Readonly,
+			},
+		}
+	}
+}
+
 type transactionContextKeyType = string
 
 var transactionContextKey transactionContextKeyType = "transaction-context-key"
 
 type txRouter struct {
-	withTx      http.Handler
-	ignorePaths []string
+	withTx             http.Handler
+	ignorePaths        []string
+	transactionOptions *BeginTx2Options
 }
 
 func (router *txRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -45,7 +67,17 @@ func (router *txRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	ctx, cleanup, err := BeginTx(ctx, "tx-router:"+r.Method+r.URL.String())
+	opts := router.transactionOptions
+	if opts == nil {
+		opts = &BeginTx2Options{}
+	}
+
+	ctx, cleanup, err := BeginTx2(ctx, &BeginTx2Options{
+		TraceID:        "tx-router:" + r.Method + r.URL.String(),
+		IsolationLevel: opts.IsolationLevel,
+		Readonly:       opts.Readonly,
+	})
+
 	if err != nil {
 		verboseError(err)
 		w.WriteHeader(http.StatusInternalServerError)
