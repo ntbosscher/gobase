@@ -12,6 +12,7 @@ import (
 	"github.com/gobuffalo/nulls"
 	"github.com/gofrs/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/ntbosscher/gobase/env"
 	"github.com/ntbosscher/gobase/er"
 	"github.com/ntbosscher/gobase/model"
 	"github.com/ntbosscher/gobase/pqshared"
@@ -73,8 +74,9 @@ func init() {
 }
 
 type watcherInfo struct {
-	muListeningFor sync.RWMutex
-	listeningFor   map[string]*WorkerInfo
+	muListeningFor          sync.RWMutex
+	listeningFor            map[string]*WorkerInfo
+	defaultTxIsolationLevel sql.IsolationLevel
 }
 
 func watcher() {
@@ -82,8 +84,23 @@ func watcher() {
 		log.Println(input.Error, input.StackTrace)
 	})
 
+	defaultTxIsolationLevel := env.OptionalInt("PQ_WORKER_QUEUE_TX_ISOLATION_LEVEL", int(sql.LevelDefault))
+	switch sql.IsolationLevel(defaultTxIsolationLevel) {
+	case sql.LevelDefault:
+	case sql.LevelReadUncommitted:
+	case sql.LevelReadCommitted:
+	case sql.LevelWriteCommitted:
+	case sql.LevelRepeatableRead:
+	case sql.LevelSnapshot:
+	case sql.LevelSerializable:
+	case sql.LevelLinearizable:
+	default:
+		log.Fatal("unknown isolation level set via env PQ_WORKER_QUEUE_TX_ISOLATION_LEVEL: ", defaultTxIsolationLevel)
+	}
+
 	w := &watcherInfo{
-		listeningFor: map[string]*WorkerInfo{},
+		listeningFor:            map[string]*WorkerInfo{},
+		defaultTxIsolationLevel: sql.IsolationLevel(defaultTxIsolationLevel),
 	}
 
 	signalTimers := make(chan bool)
@@ -141,7 +158,12 @@ func (w *watcherInfo) startWork(queueName string) (mightBeMore bool) {
 
 		var result []byte
 
-		err2 := model.WithTx(context.Background(), func(ctx context.Context, tx *sqlx.Tx) error {
+		isolationLevel := w.defaultTxIsolationLevel
+		if info.TxIsolationLevel != nil {
+			isolationLevel = *info.TxIsolationLevel
+		}
+
+		err2 := model.WithTx2(context.Background(), isolationLevel, func(ctx context.Context, tx *sqlx.Tx) error {
 			exec := info.Callback
 			for _, item := range info.Middleware {
 				exec = item(exec)
@@ -369,6 +391,7 @@ type WorkerInfo struct {
 	Callback         Worker
 	Middleware       []Middleware
 	RetainResultsFor time.Duration
+	TxIsolationLevel *sql.IsolationLevel
 
 	nActive   int
 	muNActive sync.Mutex

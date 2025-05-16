@@ -132,7 +132,15 @@ func startTx(ctx context.Context, opts *sql.TxOptions) (*sqlx.Tx, error) {
 // WithTx runs the callback in a sql transaction. If the callback inTx
 // returns an error, the transaction is rolled back
 func WithTx(ctx context.Context, inTx func(ctx context.Context, tx *sqlx.Tx) error) error {
-	ctx, cancel, err := BeginTx(ctx, "with-tx")
+	return WithTx2(ctx, sql.LevelDefault, inTx)
+}
+
+func WithTx2(ctx context.Context, isolation sql.IsolationLevel, inTx func(ctx context.Context, tx *sqlx.Tx) error) error {
+	ctx, cancel, err := BeginTx2(ctx, &BeginTx2Options{
+		IsolationLevel: isolation,
+		TraceID:        "with-tx",
+	})
+
 	if err != nil {
 		return err
 	}
