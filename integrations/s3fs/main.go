@@ -236,7 +236,7 @@ func Copy(ctx context.Context, sourceKey string, targetKey string) error {
 
 	_, err := s3svc.CopyObjectWithContext(ctx, &s3.CopyObjectInput{
 		Bucket:     aws.String(bucket),
-		CopySource: aws.String(bucket + "/" + sourceKey),
+		CopySource: aws.String(bucket + sourceKey),
 		Key:        aws.String(targetKey),
 	})
 
