@@ -230,3 +230,15 @@ func GetInfo(ctx context.Context, key string) (*s3.HeadObjectOutput, error) {
 		Key:    aws.String(key),
 	})
 }
+
+func Copy(ctx context.Context, sourceKey string, targetKey string) error {
+	s3svc := s3.New(sess())
+
+	_, err := s3svc.CopyObjectWithContext(ctx, &s3.CopyObjectInput{
+		Bucket:     aws.String(bucket),
+		CopySource: aws.String(bucket + "/" + sourceKey),
+		Key:        aws.String(targetKey),
+	})
+
+	return err
+}
