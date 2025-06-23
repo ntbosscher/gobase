@@ -26,47 +26,49 @@ func init() {
 	addListen = make(chan *WorkerInfo)
 	var err error
 
-	_, err = pqshared.Pool.Exec(context.Background(), `create table if not exists pq_worker_queue (
-		id text not null unique,
-		queue_name text not null,
-		debounce_key text not null,
-		job_arg json not null,
-		result bytea null,
-		created_at timestamp not null,
-		start_after timestamp not null,
-		started_at timestamp null,
-		completed_at timestamp null,
-		retain_until timestamp null,
-		commit_error text null
-	);`)
+	if !env.OptionalBool("PQWORKQUEUE_SKIP_MIGRATE", false) {
+		_, err = pqshared.Pool.Exec(context.Background(), `create table if not exists pq_worker_queue (
+			id text not null unique,
+			queue_name text not null,
+			debounce_key text not null,
+			job_arg json not null,
+			result bytea null,
+			created_at timestamp not null,
+			start_after timestamp not null,
+			started_at timestamp null,
+			completed_at timestamp null,
+			retain_until timestamp null,
+			commit_error text null
+		);`)
 
-	_, err = pqshared.Pool.Exec(context.Background(), `alter table pq_worker_queue 
+		_, err = pqshared.Pool.Exec(context.Background(), `alter table pq_worker_queue 
     		add column if not exists debounce_key text not null default '',
     		add column if not exists start_after timestamp not null default current_timestamp,
     		add column if not exists commit_error text null;`)
-	if err != nil {
-		log.Fatal("failed to setup worker table: ", err)
-	}
+		if err != nil {
+			log.Fatal("failed to setup worker table: ", err)
+		}
 
-	_, err = pqshared.Pool.Exec(context.Background(), `create index if not exists ix_pq_worker_queue_retain on pq_worker_queue (retain_until);`)
-	if err != nil {
-		log.Fatal("failed to setup worker table: ", err)
-	}
+		_, err = pqshared.Pool.Exec(context.Background(), `create index if not exists ix_pq_worker_queue_retain on pq_worker_queue (retain_until);`)
+		if err != nil {
+			log.Fatal("failed to setup worker table: ", err)
+		}
 
-	_, err = pqshared.Pool.Exec(context.Background(), `create index if not exists ix_pq_worker_queue_pending on pq_worker_queue (queue_name, start_after) where started_at is not null;`)
-	if err != nil {
-		log.Fatal("failed to setup worker table: ", err)
-	}
+		_, err = pqshared.Pool.Exec(context.Background(), `create index if not exists ix_pq_worker_queue_pending on pq_worker_queue (queue_name, start_after) where started_at is not null;`)
+		if err != nil {
+			log.Fatal("failed to setup worker table: ", err)
+		}
 
-	// no longer want unique index
-	_, err = pqshared.Pool.Exec(context.Background(), `drop index if exists ix_pq_worker_debounce;`)
-	if err != nil {
-		log.Fatal("failed to setup worker table: ", err)
-	}
+		// no longer want unique index
+		_, err = pqshared.Pool.Exec(context.Background(), `drop index if exists ix_pq_worker_debounce;`)
+		if err != nil {
+			log.Fatal("failed to setup worker table: ", err)
+		}
 
-	_, err = pqshared.Pool.Exec(context.Background(), `create index if not exists ix_pq_worker_queue_id on pq_worker_queue (id);`)
-	if err != nil {
-		log.Fatal("failed to setup worker table: ", err)
+		_, err = pqshared.Pool.Exec(context.Background(), `create index if not exists ix_pq_worker_queue_id on pq_worker_queue (id);`)
+		if err != nil {
+			log.Fatal("failed to setup worker table: ", err)
+		}
 	}
 
 	go cleaner()
