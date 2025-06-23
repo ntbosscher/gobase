@@ -315,7 +315,15 @@ func cleaner() {
 
 	for range tc.C {
 		err := model.WithTx(context.Background(), func(ctx context.Context, tx *sqlx.Tx) error {
-			return model.ExecContext(ctx, `delete from pq_worker_queue where retain_until <= $1`, time.Now().UTC())
+			return model.ExecContext(ctx, `
+					delete from pq_worker_queue 
+				    where id in (
+				        select id
+				        from pq_worker_queue
+						where retain_until <= $1
+						for update skip locked
+				        limit 1000
+				    )`, time.Now().UTC())
 		})
 
 		if err != nil {
