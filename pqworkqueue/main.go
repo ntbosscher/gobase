@@ -26,7 +26,15 @@ func init() {
 	addListen = make(chan *WorkerInfo)
 	var err error
 
-	if !env.OptionalBool("PQWORKQUEUE_SKIP_MIGRATE", false) {
+	skipAll := env.OptionalBool("PQWORKQUEUE_SKIP_MIGRATE", false)
+	skipThis := env.Optional("PQWORKQUEUE_MIGRATION_LEVEL", "") == "2026-June-01"
+
+	needsMigration := !skipAll
+	if skipThis {
+		needsMigration = false
+	}
+
+	if needsMigration {
 		_, err = pqshared.Pool.Exec(context.Background(), `create table if not exists pq_worker_queue (
 			id text not null unique,
 			queue_name text not null,
@@ -130,7 +138,7 @@ func (w *watcherInfo) processWork(queueName string) {
 	}
 }
 
-func (w *watcherInfo) startWork(queueName string) (mightBeMore bool) {
+func (w *watcherInfo) startWorkConcurrencyCheck(queueName string) (ok bool, isolationLevel sql.IsolationLevel, callback Worker, middleware []Middleware, retainResultsFor time.Duration, done func()) {
 	w.muListeningFor.RLock()
 	defer w.muListeningFor.RUnlock()
 
@@ -138,10 +146,30 @@ func (w *watcherInfo) startWork(queueName string) (mightBeMore bool) {
 	if info == nil {
 		Logger.Println("missing info for queue name", queueName)
 		// don't have that queue
-		return false
+		return
 	}
 
-	cancel, ok := info.concurrencyCheck()
+	done, ok = info.concurrencyCheck()
+	if !ok {
+		return
+	}
+
+	ok = true
+
+	isolationLevel = w.defaultTxIsolationLevel
+	if info.TxIsolationLevel != nil {
+		isolationLevel = *info.TxIsolationLevel
+	}
+
+	callback = info.Callback
+	middleware = info.Middleware
+	retainResultsFor = info.RetainResultsFor
+	return
+}
+
+func (w *watcherInfo) startWork(queueName string) (mightBeMore bool) {
+
+	ok, isolationLevel, callback, middleware, retainResultsFor, cancel := w.startWorkConcurrencyCheck(queueName)
 	if !ok {
 		return false
 	}
@@ -160,14 +188,9 @@ func (w *watcherInfo) startWork(queueName string) (mightBeMore bool) {
 
 		var result []byte
 
-		isolationLevel := w.defaultTxIsolationLevel
-		if info.TxIsolationLevel != nil {
-			isolationLevel = *info.TxIsolationLevel
-		}
-
 		err2 := model.WithTx2(context.Background(), isolationLevel, func(ctx context.Context, tx *sqlx.Tx) error {
-			exec := info.Callback
-			for _, item := range info.Middleware {
+			exec := callback
+			for _, item := range middleware {
 				exec = item(exec)
 			}
 
@@ -188,7 +211,7 @@ func (w *watcherInfo) startWork(queueName string) (mightBeMore bool) {
 				retain_until = $3,
 				commit_error = $4
 			where id = $5
-		`, result, time.Now().UTC(), time.Now().UTC().Add(info.RetainResultsFor), commitErr, id)
+		`, result, time.Now().UTC(), time.Now().UTC().Add(retainResultsFor), commitErr, id)
 
 		if err != nil {
 			Logger.Println("failed to store result:", err)
