@@ -138,13 +138,32 @@ func (w *watcherInfo) processWork(queueName string) {
 	}
 }
 
+var missingQueueNameLogGate = map[string]time.Time{}
+var missingQueueNameLogGateLock sync.Mutex
+
+func checkMissingQueueLogGate(queueName string) bool {
+	missingQueueNameLogGateLock.Lock()
+	defer missingQueueNameLogGateLock.Unlock()
+
+	value, ok := missingQueueNameLogGate[queueName]
+	if ok && time.Since(value) < time.Hour {
+		return false
+	}
+
+	missingQueueNameLogGate[queueName] = time.Now()
+	return true
+}
+
 func (w *watcherInfo) startWorkConcurrencyCheck(queueName string) (ok bool, isolationLevel sql.IsolationLevel, callback Worker, middleware []Middleware, retainResultsFor time.Duration, done func()) {
 	w.muListeningFor.RLock()
 	defer w.muListeningFor.RUnlock()
 
 	info := w.listeningFor[queueName]
 	if info == nil {
-		Logger.Println("missing info for queue name", queueName)
+		if checkMissingQueueLogGate(queueName) {
+			Logger.Println("missing info for queue name", queueName, "you may need to clear this from the `pq_worker_queue` table or check your application")
+		}
+
 		// don't have that queue
 		return
 	}
