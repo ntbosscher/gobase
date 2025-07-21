@@ -62,11 +62,11 @@ const (
 func init() {
 	// need to also set AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID
 	subscriptionId = env.Require("AZURE_SUBSCRIPTION_ID")
-	verbose = env.OptionalBool("AZURE_FORM_RECOGNIZE_VERBOSE", false)
-	module := env.Optional("AZURE_FORM_RECOGNIZE_TRACE_MODULE_NAME", "gobase_azuredocintel")
-	version := env.Optional("AZURE_FORM_RECOGNIZE_TRACE_MODULE_VERSION", "v1.0")
-	apiVersion = env.Optional("AZURE_FORM_RECOGNIZE_API_VERSION", "2024-11-30")
-	azureEndpoint = env.Require("AZURE_FORM_RECOGNIZE_ENDPOINT") // e.g. hardwaresched.cognitiveservices.azure.com
+	verbose = env.OptionalBool("AZURE_DOC_INTEL_VERBOSE", false)
+	module := env.Optional("AZURE_DOC_INTEL_TRACE_MODULE_NAME", "gobase_azuredocintel")
+	version := env.Optional("AZURE_DOC_INTEL_TRACE_MODULE_VERSION", "v1.0")
+	apiVersion = env.Optional("AZURE_DOC_INTEL_API_VERSION", "2024-11-30")
+	azureEndpoint = env.Require("AZURE_DOC_INTEL_ENDPOINT") // e.g. hardwaresched.cognitiveservices.azure.com
 
 	conOptions := &azcore.ClientOptions{}
 	pipe = runtime.NewPipeline(module, version, runtime.PipelineOptions{}, conOptions)
