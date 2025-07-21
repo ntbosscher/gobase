@@ -96,9 +96,9 @@ func AnalyzeFromURL(url string) *AnalyzeBody {
 	}
 }
 
-type ConfigFunc func(bld *StartAnalyzeJobBuilder)
+type ConfigFunc func(bld *AnalyzeJobBuilder)
 
-type StartAnalyzeJobBuilder struct {
+type AnalyzeJobBuilder struct {
 	RequestQuery   url.Values
 	RequestHeaders http.Header
 }
@@ -110,8 +110,9 @@ func StartAnalyzeJob(ctx context.Context, body *AnalyzeBody, model string, cfg .
 	qr.Set("api-version", apiVersion)
 	qr.Set("stringIndexType", "utf16CodeUnit")
 
-	bld := &StartAnalyzeJobBuilder{
-		RequestQuery: qr,
+	bld := &AnalyzeJobBuilder{
+		RequestQuery:   qr,
+		RequestHeaders: http.Header{},
 	}
 
 	for _, f := range cfg {
@@ -161,17 +162,30 @@ func StartAnalyzeJob(ctx context.Context, body *AnalyzeBody, model string, cfg .
 	return "", errors.New(string(content))
 }
 
-func GetJob(ctx context.Context, jobId string, modelName string) (*JobResult, error) {
+func GetJob(ctx context.Context, jobId string, modelName string, cfg ...ConfigFunc) (*JobResult, error) {
 	qr := url.Values{}
 	qr.Set("api-version", apiVersion)
 
-	u := fmt.Sprintf("https://%s/formrecognizer/documentModels/%s/analyzeResults/%s?%s", azureEndpoint, modelName, jobId, qr.Encode())
+	bld := &AnalyzeJobBuilder{
+		RequestQuery:   qr,
+		RequestHeaders: http.Header{},
+	}
+
+	for _, f := range cfg {
+		f(bld)
+	}
+
+	u := fmt.Sprintf("https://%s/formrecognizer/documentModels/%s/analyzeResults/%s?%s", azureEndpoint, modelName, jobId, bld.RequestQuery.Encode())
 	rq, err := runtime.NewRequest(ctx, "GET", u)
 	if err != nil {
 		return nil, err
 	}
 
 	rq.Raw().Header.Set("Ocp-Apim-Subscription-Key", subscriptionId)
+
+	for k, v := range bld.RequestHeaders {
+		rq.Raw().Header[k] = v
+	}
 
 	res, err := pipe.Do(rq)
 	if err != nil {
