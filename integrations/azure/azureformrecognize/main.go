@@ -6,15 +6,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"time"
+
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/ntbosscher/gobase/currency"
 	"github.com/ntbosscher/gobase/env"
 	"github.com/ntbosscher/gobase/er"
-	"io"
-	"net/url"
-	"time"
 )
 
 var pipe runtime.Pipeline
@@ -94,20 +96,39 @@ func AnalyzeFromURL(url string) *AnalyzeBody {
 	}
 }
 
-func StartAnalyzeJob(ctx context.Context, body *AnalyzeBody, model string) (string, error) {
+type ConfigFunc func(bld *StartAnalyzeJobBuilder)
+
+type StartAnalyzeJobBuilder struct {
+	RequestQuery   url.Values
+	RequestHeaders http.Header
+}
+
+func StartAnalyzeJob(ctx context.Context, body *AnalyzeBody, model string, cfg ...ConfigFunc) (string, error) {
 
 	qr := url.Values{}
 	qr.Set("locale", "en-US")
 	qr.Set("api-version", apiVersion)
 	qr.Set("stringIndexType", "utf16CodeUnit")
 
-	u := fmt.Sprintf("https://%s/formrecognizer/documentModels/%s:analyze?%s", azureEndpoint, model, qr.Encode())
+	bld := &StartAnalyzeJobBuilder{
+		RequestQuery: qr,
+	}
+
+	for _, f := range cfg {
+		f(bld)
+	}
+
+	u := fmt.Sprintf("https://%s/formrecognizer/documentModels/%s:analyze?%s", azureEndpoint, model, bld.RequestQuery.Encode())
 	rq, err := runtime.NewRequest(ctx, "POST", u)
 	if err != nil {
 		return "", err
 	}
 
 	rq.Raw().Header.Set("Ocp-Apim-Subscription-Key", subscriptionId)
+
+	for k, v := range bld.RequestHeaders {
+		rq.Raw().Header[k] = v
+	}
 
 	err = rq.SetBody(body.Body, body.ContentType)
 	if err != nil {
