@@ -66,7 +66,7 @@ func Print(ctx context.Context, html string) ([]byte, error) {
 		return nil, errors.New("unsupported OS")
 	}
 
-	args := []string{"--headless", "--disable-gpu", "--print-to-pdf-no-header",
+	args := []string{"--headless", "--disable-gpu", "--print-to-pdf-no-header", "--no-pdf-header-footer",
 		"--user-data-dir=" + chromeUserData,
 		"--disk-cache-dir=" + chromeDiskCache,
 		"--crash-dumps-dir=" + chromeCrashDump,
