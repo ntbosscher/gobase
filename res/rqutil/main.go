@@ -3,6 +3,10 @@ package rqutil
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"strings"
+	"time"
+
 	"github.com/Masterminds/squirrel"
 	"github.com/lann/builder"
 	"github.com/ntbosscher/gobase/auth"
@@ -10,9 +14,6 @@ import (
 	"github.com/ntbosscher/gobase/model"
 	"github.com/ntbosscher/gobase/model/squtil"
 	"github.com/ntbosscher/gobase/res"
-	"reflect"
-	"strings"
-	"time"
 )
 
 var mapper = model.SnakeCaseStructNameMapping
@@ -127,6 +128,10 @@ func UpsertModel(ctx context.Context, obj interface{}, table string, fields ...s
 		}
 
 		fTyp, _ := typ.FieldByName(field)
+		if !fTyp.IsExported() {
+			continue
+		}
+
 		dbName := fTyp.Tag.Get("db")
 		name := ""
 
