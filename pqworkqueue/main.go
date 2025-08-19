@@ -154,7 +154,7 @@ func checkMissingQueueLogGate(queueName string) bool {
 	return true
 }
 
-func (w *watcherInfo) startWorkConcurrencyCheck(queueName string) (ok bool, isolationLevel sql.IsolationLevel, callback Worker, middleware []Middleware, retainResultsFor time.Duration, done func()) {
+func (w *watcherInfo) startWorkConcurrencyCheck(queueName string) (ok bool, isolationLevel sql.IsolationLevel, callback Worker, middleware []Middleware, retainResultsFor time.Duration, delayCallback DelayForLoadCallback, done func()) {
 	w.muListeningFor.RLock()
 	defer w.muListeningFor.RUnlock()
 
@@ -183,14 +183,35 @@ func (w *watcherInfo) startWorkConcurrencyCheck(queueName string) (ok bool, isol
 	callback = info.Callback
 	middleware = info.Middleware
 	retainResultsFor = info.RetainResultsFor
+	delayCallback = info.DelayForLoadCallback
 	return
 }
 
 func (w *watcherInfo) startWork(queueName string) (mightBeMore bool) {
 
-	ok, isolationLevel, callback, middleware, retainResultsFor, cancel := w.startWorkConcurrencyCheck(queueName)
+	ok, isolationLevel, callback, middleware, retainResultsFor, delayCallback, cancel := w.startWorkConcurrencyCheck(queueName)
 	if !ok {
 		return false
+	}
+
+	if delayCallback != nil {
+		count := 0
+		delayStart := time.Now()
+
+		for {
+			delayInfo := delayCallback(time.Since(delayStart), count)
+			if delayInfo == nil || delayInfo.DelayFor <= 0 {
+				break
+			}
+
+			<-time.After(delayInfo.DelayFor)
+
+			if !delayInfo.CheckAgainAfterDelay {
+				break
+			}
+
+			count++
+		}
 	}
 
 	defer cancel()
@@ -437,13 +458,22 @@ func StartWorkers(info *WorkerInfo) {
 	addListen <- info
 }
 
+// DelayForLoadCallback if nil, no delay
+type DelayForLoadCallback func(totalDelay time.Duration, delayCount int) *DelayInfo
+
+type DelayInfo struct {
+	DelayFor             time.Duration
+	CheckAgainAfterDelay bool
+}
+
 type WorkerInfo struct {
-	QueueName        string
-	NConcurrent      int
-	Callback         Worker
-	Middleware       []Middleware
-	RetainResultsFor time.Duration
-	TxIsolationLevel *sql.IsolationLevel
+	QueueName            string
+	NConcurrent          int
+	Callback             Worker
+	Middleware           []Middleware
+	RetainResultsFor     time.Duration
+	TxIsolationLevel     *sql.IsolationLevel
+	DelayForLoadCallback DelayForLoadCallback
 
 	nActive   int
 	muNActive sync.Mutex
