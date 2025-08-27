@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/ntbosscher/gobase/env"
+	"github.com/ntbosscher/gobase/jv"
 	errors2 "github.com/pkg/errors"
 )
 
@@ -43,7 +44,6 @@ type UploadInput struct {
 	Key        string
 	Body       io.Reader
 	FileHeader *multipart.FileHeader
-	Expires    *time.Time
 }
 
 type uploadIterator struct {
@@ -112,7 +112,6 @@ func (u *uploadIterator) UploadObject() s3manager.BatchUploadObject {
 			Key:                aws.String(item.Key),
 			Body:               item.Body,
 			ContentDisposition: aws.String("attachment; filename=" + item.FileName),
-			Expires:            item.Expires,
 		},
 		After: func() error {
 			return nil
@@ -240,6 +239,33 @@ func Copy(ctx context.Context, sourceKey string, targetKey string) error {
 		Bucket:     aws.String(bucket),
 		CopySource: aws.String(bucket + sourceKey),
 		Key:        aws.String(targetKey),
+	})
+
+	return err
+}
+
+type LifeCycleRule struct {
+	Prefix            string
+	ExpiresAfterNDays int
+}
+
+func SetLifeCycleRules(ctx context.Context, list []*LifeCycleRule) error {
+	s3svc := s3.New(sess())
+
+	_, err := s3svc.PutBucketLifecycleConfigurationWithContext(ctx, &s3.PutBucketLifecycleConfigurationInput{
+		Bucket: aws.String(bucket),
+		LifecycleConfiguration: &s3.BucketLifecycleConfiguration{
+			Rules: jv.Mapper(list, func(item *LifeCycleRule) *s3.LifecycleRule {
+				return &s3.LifecycleRule{
+					Filter: &s3.LifecycleRuleFilter{
+						Prefix: aws.String(item.Prefix),
+					},
+					Expiration: &s3.LifecycleExpiration{
+						Days: aws.Int64(int64(item.ExpiresAfterNDays)),
+					},
+				}
+			}),
+		},
 	})
 
 	return err
