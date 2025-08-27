@@ -43,6 +43,7 @@ type UploadInput struct {
 	Key        string
 	Body       io.Reader
 	FileHeader *multipart.FileHeader
+	Expires    *time.Time
 }
 
 type uploadIterator struct {
@@ -111,6 +112,7 @@ func (u *uploadIterator) UploadObject() s3manager.BatchUploadObject {
 			Key:                aws.String(item.Key),
 			Body:               item.Body,
 			ContentDisposition: aws.String("attachment; filename=" + item.FileName),
+			Expires:            item.Expires,
 		},
 		After: func() error {
 			return nil
