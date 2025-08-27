@@ -8,14 +8,15 @@ import (
 	"mime/multipart"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/ntbosscher/gobase/env"
+	"github.com/ntbosscher/gobase/er"
 	"github.com/ntbosscher/gobase/jv"
 	errors2 "github.com/pkg/errors"
 )
@@ -32,11 +33,17 @@ func init() {
 	env.Require("AWS_SECRET_ACCESS_KEY")
 }
 
-func sess() *session.Session {
-	return session.Must(session.NewSession(&aws.Config{
-		Endpoint: &endpoint,
-		Region:   &region,
-	}))
+func sess(ctx context.Context) aws.Config {
+	cfg, err := sessOpt(ctx)
+	er.Check(err)
+
+	return cfg
+}
+
+func sessOpt(ctx context.Context) (aws.Config, error) {
+	return config.LoadDefaultConfig(ctx,
+		config.WithBaseEndpoint(endpoint),
+		config.WithRegion(region))
 }
 
 type UploadInput struct {
@@ -49,8 +56,6 @@ type UploadInput struct {
 type uploadIterator struct {
 	input              []*UploadInput
 	openMultipartFiles []multipart.File
-	position           int
-	mu                 sync.RWMutex
 }
 
 // initialize sets up .Body for all UploadInput that used the FileHeader input method
@@ -87,44 +92,86 @@ func (u *uploadIterator) cleanup() {
 	}
 }
 
-func (u *uploadIterator) Next() bool {
-	u.mu.RLock()
-	defer u.mu.RUnlock()
-	return u.position < len(u.input)
-}
+func (u *uploadIterator) Run(ctx context.Context) error {
 
-func (u *uploadIterator) Err() error {
+	cfg, err := sessOpt(ctx)
+	if err != nil {
+		return err
+	}
+
+	uploader := manager.NewUploader(s3.NewFromConfig(cfg))
+
+	workerC := make(chan *UploadInput)
+	errC := make(chan error)
+	doneC := make(chan bool, 10)
+	workerCount := 0
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	for i := 0; i < len(u.input) && i < 4; i++ {
+		workerCount++
+
+		go func() {
+			defer func() {
+				doneC <- true
+			}()
+
+			for item := range workerC {
+				_, err2 := uploader.Upload(ctx, &s3.PutObjectInput{
+					Bucket:             aws.String(bucket),
+					Key:                aws.String(item.Key),
+					Body:               item.Body,
+					ContentDisposition: aws.String("attachment; filename=" + item.FileName),
+				})
+
+				if err2 != nil {
+					select {
+					case errC <- err2:
+						return
+					case <-ctx.Done():
+						return
+					}
+				}
+			}
+		}()
+	}
+
+	for _, item := range u.input {
+		select {
+		case workerC <- item:
+		case <-ctx.Done():
+			return ctx.Err()
+		case err2 := <-errC:
+			close(workerC)
+			cancel()
+
+			return err2
+		}
+	}
+
+	close(workerC)
+
+	for ct := 0; ct < workerCount; ct++ {
+		select {
+		case <-doneC:
+
+		case <-ctx.Done():
+			return ctx.Err()
+
+		case err2 := <-errC:
+			cancel()
+			return err2
+		}
+	}
+
 	return nil
 }
 
-func (u *uploadIterator) UploadObject() s3manager.BatchUploadObject {
-
-	u.mu.Lock()
-
-	item := u.input[u.position]
-	u.position++
-
-	u.mu.Unlock()
-
-	return s3manager.BatchUploadObject{
-		Object: &s3manager.UploadInput{
-			Bucket:             aws.String(bucket),
-			Key:                aws.String(item.Key),
-			Body:               item.Body,
-			ContentDisposition: aws.String("attachment; filename=" + item.FileName),
-		},
-		After: func() error {
-			return nil
-		},
-	}
-}
-
 func Upload(ctx context.Context, input []*UploadInput) error {
-	uploader := s3manager.NewUploader(sess())
 
 	iter := &uploadIterator{
-		input:    input,
-		position: 0,
+		input: input,
 	}
 
 	if err := iter.initialize(); err != nil {
@@ -133,15 +180,19 @@ func Upload(ctx context.Context, input []*UploadInput) error {
 
 	defer iter.cleanup()
 
-	return uploader.UploadWithIterator(ctx, iter)
+	return iter.Run(ctx)
 }
 
 func Download(ctx context.Context, key string) ([]byte, error) {
-	downloader := s3manager.NewDownloader(sess())
+	cfg, err := sessOpt(ctx)
+	if err != nil {
+		return nil, err
+	}
 
-	buf := aws.NewWriteAtBuffer([]byte{})
+	downloader := manager.NewDownloader(s3.NewFromConfig(cfg))
+	buf := manager.NewWriteAtBuffer([]byte{})
 
-	_, err := downloader.DownloadWithContext(ctx, buf, &s3.GetObjectInput{
+	_, err = downloader.Download(ctx, buf, &s3.GetObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 	})
@@ -150,9 +201,15 @@ func Download(ctx context.Context, key string) ([]byte, error) {
 }
 
 func DownloadToWriter(ctx context.Context, key string, wr io.WriterAt) (int64, error) {
-	downloader := s3manager.NewDownloader(sess())
 
-	return downloader.DownloadWithContext(ctx, wr, &s3.GetObjectInput{
+	cfg, err := sessOpt(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	downloader := manager.NewDownloader(s3.NewFromConfig(cfg))
+
+	return downloader.Download(ctx, wr, &s3.GetObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 	})
@@ -166,37 +223,70 @@ const (
 )
 
 func DownloadLink(key string, downloadType DownloadType, fileName string) (string, error) {
-	s3svc := s3.New(sess())
+	ctx := context.Background()
+	cfg, err := sessOpt(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	s3svc := s3.NewPresignClient(s3.NewFromConfig(cfg))
 
 	contentType := aws.String(mime.TypeByExtension(filepath.Ext(fileName)))
-	if aws.StringValue(contentType) == "" {
+	if *contentType == "" {
 		contentType = nil
 	}
 
-	req, _ := s3svc.GetObjectRequest(&s3.GetObjectInput{
+	req, err := s3svc.PresignGetObject(ctx, &s3.GetObjectInput{
 		Bucket:                     aws.String(bucket),
 		Key:                        aws.String(key),
 		ResponseContentDisposition: aws.String(string(downloadType) + "; filename=" + sanitizeDownloadFileName(fileName)),
 		ResponseContentType:        contentType,
+	}, func(o *s3.PresignOptions) {
+		o.Expires = 5 * time.Minute
 	})
 
-	return req.Presign(5 * time.Minute)
+	if err != nil {
+		return "", err
+	}
+
+	return req.URL, nil
 }
 
 func GetPreSignedUploadURL(key string) (string, error) {
-	s3svc := s3.New(sess())
+	ctx := context.Background()
 
-	rq, _ := s3svc.PutObjectRequest(&s3.PutObjectInput{
+	cfg, err := sessOpt(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	s3svc := s3.NewPresignClient(s3.NewFromConfig(cfg))
+
+	rq, err := s3svc.PresignPutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
+	}, func(o *s3.PresignOptions) {
+		o.Expires = 5 * time.Minute
 	})
 
-	return rq.Presign(5 * time.Minute)
+	if err != nil {
+		return "", err
+	}
+
+	return rq.URL, nil
 }
 
 func Remove(key string) error {
-	s3svc := s3.New(sess())
-	_, err := s3svc.DeleteObject(&s3.DeleteObjectInput{
+	ctx := context.Background()
+
+	cfg, err := sessOpt(ctx)
+	if err != nil {
+		return err
+	}
+
+	s3svc := s3.NewFromConfig(cfg)
+
+	_, err = s3svc.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 	})
@@ -212,30 +302,45 @@ func sanitizeDownloadFileName(fileName string) string {
 
 // SetPermission updates the object's permission to the canned acl (see https://docs.aws.amazon.com/AmazonS3/latest/userguide/acl-overview.html#canned-acl)
 func SetPermission(ctx context.Context, key string, cannedACL string) error {
-	s3svc := s3.New(sess())
+	cfg, err := sessOpt(ctx)
+	if err != nil {
+		return err
+	}
 
-	_, err := s3svc.PutObjectAclWithContext(ctx, &s3.PutObjectAclInput{
+	s3svc := s3.NewFromConfig(cfg)
+
+	_, err = s3svc.PutObjectAcl(ctx, &s3.PutObjectAclInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
-		ACL:    aws.String(cannedACL),
+		ACL:    types.ObjectCannedACL(cannedACL),
 	})
 
 	return err
 }
 
 func GetInfo(ctx context.Context, key string) (*s3.HeadObjectOutput, error) {
-	s3svc := s3.New(sess())
+	cfg, err := sessOpt(ctx)
+	if err != nil {
+		return nil, err
+	}
 
-	return s3svc.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
+	s3svc := s3.NewFromConfig(cfg)
+
+	return s3svc.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 	})
 }
 
 func Copy(ctx context.Context, sourceKey string, targetKey string) error {
-	s3svc := s3.New(sess())
+	cfg, err := sessOpt(ctx)
+	if err != nil {
+		return err
+	}
 
-	_, err := s3svc.CopyObjectWithContext(ctx, &s3.CopyObjectInput{
+	s3svc := s3.NewFromConfig(cfg)
+
+	_, err = s3svc.CopyObject(ctx, &s3.CopyObjectInput{
 		Bucket:     aws.String(bucket),
 		CopySource: aws.String(bucket + sourceKey),
 		Key:        aws.String(targetKey),
@@ -250,18 +355,23 @@ type LifeCycleRule struct {
 }
 
 func SetLifeCycleRules(ctx context.Context, list []*LifeCycleRule) error {
-	s3svc := s3.New(sess())
+	cfg, err := sessOpt(ctx)
+	if err != nil {
+		return err
+	}
 
-	_, err := s3svc.PutBucketLifecycleConfigurationWithContext(ctx, &s3.PutBucketLifecycleConfigurationInput{
+	s3svc := s3.NewFromConfig(cfg)
+
+	_, err = s3svc.PutBucketLifecycleConfiguration(ctx, &s3.PutBucketLifecycleConfigurationInput{
 		Bucket: aws.String(bucket),
-		LifecycleConfiguration: &s3.BucketLifecycleConfiguration{
-			Rules: jv.Mapper(list, func(item *LifeCycleRule) *s3.LifecycleRule {
-				return &s3.LifecycleRule{
-					Filter: &s3.LifecycleRuleFilter{
+		LifecycleConfiguration: &types.BucketLifecycleConfiguration{
+			Rules: jv.Mapper(list, func(item *LifeCycleRule) types.LifecycleRule {
+				return types.LifecycleRule{
+					Filter: &types.LifecycleRuleFilter{
 						Prefix: aws.String(item.Prefix),
 					},
-					Expiration: &s3.LifecycleExpiration{
-						Days: aws.Int64(int64(item.ExpiresAfterNDays)),
+					Expiration: &types.LifecycleExpiration{
+						Days: aws.Int32(int32(item.ExpiresAfterNDays)),
 					},
 				}
 			}),

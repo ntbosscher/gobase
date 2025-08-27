@@ -13,7 +13,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
-	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/ntbosscher/gobase/currency"
 	"github.com/ntbosscher/gobase/env"
 	"github.com/ntbosscher/gobase/er"
@@ -89,7 +89,7 @@ func AnalyzeFromURL(url string) *AnalyzeBody {
 		"urlSource": url,
 	})
 
-	body := aws.ReadSeekCloser(bytes.NewReader(content))
+	body := manager.ReadSeekCloser(bytes.NewReader(content))
 	return &AnalyzeBody{
 		Body:        body,
 		ContentType: "application/json",
