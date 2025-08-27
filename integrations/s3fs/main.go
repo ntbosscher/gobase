@@ -34,7 +34,7 @@ func init() {
 
 func sessOpt(ctx context.Context) (aws.Config, error) {
 	return config.LoadDefaultConfig(ctx,
-		config.WithBaseEndpoint(endpoint),
+		config.WithBaseEndpoint("https://"+endpoint),
 		config.WithRegion(region))
 }
 
