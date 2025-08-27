@@ -16,7 +16,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/ntbosscher/gobase/env"
-	"github.com/ntbosscher/gobase/er"
 	"github.com/ntbosscher/gobase/jv"
 	errors2 "github.com/pkg/errors"
 )
@@ -31,13 +30,6 @@ func init() {
 	region = env.Require("AWS_REGION")     // "nyc3"
 	env.Require("AWS_ACCESS_KEY_ID")
 	env.Require("AWS_SECRET_ACCESS_KEY")
-}
-
-func sess(ctx context.Context) aws.Config {
-	cfg, err := sessOpt(ctx)
-	er.Check(err)
-
-	return cfg
 }
 
 func sessOpt(ctx context.Context) (aws.Config, error) {
@@ -222,8 +214,13 @@ const (
 	Attachment DownloadType = "attachment"
 )
 
+// DownloadLink is a convenience function for DownloadLink2 with a background context
+// Deprecated: use DownloadLink2 instead
 func DownloadLink(key string, downloadType DownloadType, fileName string) (string, error) {
-	ctx := context.Background()
+	return DownloadLink2(context.Background(), key, downloadType, fileName)
+}
+
+func DownloadLink2(ctx context.Context, key string, downloadType DownloadType, fileName string) (string, error) {
 	cfg, err := sessOpt(ctx)
 	if err != nil {
 		return "", err
@@ -252,9 +249,17 @@ func DownloadLink(key string, downloadType DownloadType, fileName string) (strin
 	return req.URL, nil
 }
 
+// GetPreSignedUploadURL is a convenience function for GetPreSignedUploadURL2 with a background context
+// Deprecated: use GetPreSignedUploadURL2 instead
 func GetPreSignedUploadURL(key string) (string, error) {
-	ctx := context.Background()
+	return GetPreSignedUploadURL2(context.Background(), key)
+}
 
+func GetPreSignedUploadURL2(ctx context.Context, key string) (string, error) {
+	return GetPreSignedUploadURL3(ctx, key, 5*time.Minute)
+}
+
+func GetPreSignedUploadURL3(ctx context.Context, key string, expiry time.Duration) (string, error) {
 	cfg, err := sessOpt(ctx)
 	if err != nil {
 		return "", err
@@ -266,7 +271,7 @@ func GetPreSignedUploadURL(key string) (string, error) {
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 	}, func(o *s3.PresignOptions) {
-		o.Expires = 5 * time.Minute
+		o.Expires = expiry
 	})
 
 	if err != nil {
@@ -276,8 +281,14 @@ func GetPreSignedUploadURL(key string) (string, error) {
 	return rq.URL, nil
 }
 
+// Remove is a convenience function for Remove2 with a background context
+// Deprecated: use Remove2 instead
 func Remove(key string) error {
-	ctx := context.Background()
+	return Remove2(context.Background(), key)
+}
+
+// Remove2 removes an object from the bucket
+func Remove2(ctx context.Context, key string) error {
 
 	cfg, err := sessOpt(ctx)
 	if err != nil {
@@ -373,6 +384,7 @@ func SetLifeCycleRules(ctx context.Context, list []*LifeCycleRule) error {
 					Expiration: &types.LifecycleExpiration{
 						Days: aws.Int32(int32(item.ExpiresAfterNDays)),
 					},
+					Status: types.ExpirationStatusEnabled,
 				}
 			}),
 		},
