@@ -353,11 +353,18 @@ func Copy(ctx context.Context, sourceKey string, targetKey string) error {
 
 	_, err = s3svc.CopyObject(ctx, &s3.CopyObjectInput{
 		Bucket:     aws.String(bucket),
-		CopySource: aws.String(bucket + sourceKey),
+		CopySource: aws.String(joinSlash(bucket, sourceKey)),
 		Key:        aws.String(targetKey),
 	})
 
 	return err
+}
+
+func joinSlash(a, b string) string {
+	a = strings.TrimSuffix(a, "/")
+	b = strings.TrimSuffix(b, "/")
+
+	return a + "/" + b
 }
 
 type LifeCycleRule struct {
