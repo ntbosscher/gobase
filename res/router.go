@@ -134,7 +134,7 @@ func WrapHTTPFunc(handler HandlerFunc2) http.HandlerFunc {
 		defer er.HandleErrors(func(input *er.HandlerInput) {
 			res := &responder{
 				status: input.SuggestedHttpCode,
-				data:   errorData(input.Message, input.StackTrace, ""),
+				data:   errorData(input.Message, input.StackTrace, "", input.Details),
 			}
 
 			res.Respond(wr, req)
@@ -149,7 +149,7 @@ func AutoHandleHttpPanics(wr http.ResponseWriter, req *http.Request) {
 	er.HandleErrors(func(input *er.HandlerInput) {
 		res := &responder{
 			status: input.SuggestedHttpCode,
-			data:   errorData(input.Message, input.StackTrace, ""),
+			data:   errorData(input.Message, input.StackTrace, "", nil),
 		}
 
 		res.Respond(wr, req)

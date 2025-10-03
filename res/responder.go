@@ -2,8 +2,6 @@ package res
 
 import (
 	"fmt"
-	jsoniter "github.com/json-iterator/go"
-	"github.com/json-iterator/go/extra"
 	"io"
 	"io/ioutil"
 	"log"
@@ -12,6 +10,9 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	jsoniter "github.com/json-iterator/go"
+	"github.com/json-iterator/go/extra"
 )
 
 var json = jsoniter.ConfigDefault
@@ -253,7 +254,7 @@ func List(list interface{}) Responder {
 func AppError(str string) Responder {
 	return &responder{
 		status: http.StatusInternalServerError,
-		data:   errorData(str, "", ""),
+		data:   errorData(str, "", "", nil),
 	}
 }
 
@@ -267,7 +268,7 @@ func Accepted(status int, data interface{}) Responder {
 func BadRequest(str string) Responder {
 	return &responder{
 		status: http.StatusBadRequest,
-		data:   errorData(str, "", ""),
+		data:   errorData(str, "", "", nil),
 	}
 }
 
@@ -282,14 +283,14 @@ func Redirect(url string) Responder {
 func InternalServerError(str string) Responder {
 	return &responder{
 		status: http.StatusInternalServerError,
-		data:   errorData(str, "", ""),
+		data:   errorData(str, "", "", nil),
 	}
 }
 
 func UnProcessable() Responder {
 	return &responder{
 		status: http.StatusUnprocessableEntity,
-		data:   errorData("unable to process that request", "", ""),
+		data:   errorData("unable to process that request", "", "", nil),
 	}
 }
 
@@ -326,7 +327,7 @@ func NotAuthorized(reason ...string) Responder {
 
 	return &responder{
 		status: http.StatusUnauthorized,
-		data:   errorData("not authorized", "", msg),
+		data:   errorData("not authorized", "", msg, reason),
 	}
 }
 
@@ -344,10 +345,11 @@ func ShowBasicAuthPrompt(message string) Responder {
 	}
 }
 
-func errorData(str string, stackTrace string, msg string) interface{} {
+func errorData(str string, stackTrace string, msg string, details any) interface{} {
 	return map[string]interface{}{
 		"error":      str,
 		"message":    msg,
 		"stackTrace": stackTrace,
+		"details":    details,
 	}
 }

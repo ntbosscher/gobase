@@ -38,7 +38,7 @@ func HandleErrors(callback func(input *HandlerInput)) {
 			SuggestedHttpCode: 500,
 			StackTrace:        string(debug.Stack()),
 			Error:             err,
-			Details:           getDetails(r),
+			Details:           getDetails(err),
 		})
 
 		return
@@ -49,7 +49,7 @@ func HandleErrors(callback func(input *HandlerInput)) {
 		SuggestedHttpCode: cause.Code,
 		StackTrace:        fmt.Sprintf("%+v", err),
 		Error:             err,
-		Details:           getDetails(r),
+		Details:           getDetails(err),
 	})
 }
 
