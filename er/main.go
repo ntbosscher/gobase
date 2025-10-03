@@ -49,7 +49,7 @@ func HandleErrors(callback func(input *HandlerInput)) {
 		SuggestedHttpCode: cause.Code,
 		StackTrace:        fmt.Sprintf("%+v", err),
 		Error:             err,
-		Details:           getDetails(err),
+		Details:           getDetails(cause.Err),
 	})
 }
 
