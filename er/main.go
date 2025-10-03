@@ -25,6 +25,7 @@ func HandleErrors(callback func(input *HandlerInput)) {
 			SuggestedHttpCode: 500,
 			StackTrace:        string(debug.Stack()),
 			Error:             ErrUnknown,
+			Details:           getDetails(r),
 		})
 
 		return
@@ -37,6 +38,7 @@ func HandleErrors(callback func(input *HandlerInput)) {
 			SuggestedHttpCode: 500,
 			StackTrace:        string(debug.Stack()),
 			Error:             err,
+			Details:           getDetails(r),
 		})
 
 		return
@@ -47,7 +49,24 @@ func HandleErrors(callback func(input *HandlerInput)) {
 		SuggestedHttpCode: cause.Code,
 		StackTrace:        fmt.Sprintf("%+v", err),
 		Error:             err,
+		Details:           getDetails(r),
 	})
+}
+
+type ErrorWithDetailsForClient interface {
+	GetClientDetails() any
+}
+
+func getDetails(input any) any {
+	if input == nil {
+		return nil
+	}
+
+	if details, ok := input.(ErrorWithDetailsForClient); ok {
+		return details.GetClientDetails()
+	}
+
+	return nil
 }
 
 type HandlerInput struct {
@@ -55,6 +74,7 @@ type HandlerInput struct {
 	SuggestedHttpCode int
 	StackTrace        string
 	Error             error
+	Details           any
 }
 
 func CheckForDecode(err error) {
@@ -94,4 +114,24 @@ func Check(err error) {
 
 func Throw(value string) {
 	Check(errors.New(value))
+}
+
+type errorWithDetailsImpl struct {
+	Value   string
+	Details any
+}
+
+func (e *errorWithDetailsImpl) Error() string {
+	return e.Value
+}
+
+func (e *errorWithDetailsImpl) GetClientDetails() any {
+	return e.Details
+}
+
+func ThrowWithClientDetails(value string, input any) {
+	Check(&errorWithDetailsImpl{
+		Value:   value,
+		Details: input,
+	})
 }
