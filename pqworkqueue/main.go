@@ -228,14 +228,18 @@ func (w *watcherInfo) startWork(queueName string) (mightBeMore bool) {
 
 		var result []byte
 
-		err2 := model.WithTx2(context.Background(), isolationLevel, func(ctx context.Context, tx *sqlx.Tx) error {
+		err2 := model.WithTx2(context.Background(), isolationLevel, func(ctx context.Context, tx *sqlx.Tx) (innerErr error) {
+			defer er.HandleErrors(func(input *er.HandlerInput) {
+				innerErr = input.Error
+			})
+
 			exec := callback
 			for _, item := range middleware {
 				exec = item(exec)
 			}
 
 			result = exec(ctx, id, message)
-			return nil
+			return
 		})
 
 		commitErr := nulls.String{}
