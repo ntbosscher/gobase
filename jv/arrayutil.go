@@ -1,12 +1,14 @@
 package jv
 
 import (
+	"sort"
+
 	"github.com/ntbosscher/gobase/randomish"
 	"github.com/pkg/errors"
 	"golang.org/x/exp/constraints"
-	"sort"
 )
 
+// ArrayItemCompare checks if the two arrays are equivalent
 func ArrayItemCompare[T comparable](a []T, b []T) bool {
 	if len(a) != len(b) {
 		return false

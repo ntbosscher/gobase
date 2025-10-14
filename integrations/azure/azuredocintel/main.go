@@ -17,6 +17,7 @@ import (
 	"github.com/ntbosscher/gobase/currency"
 	"github.com/ntbosscher/gobase/env"
 	"github.com/ntbosscher/gobase/er"
+	"github.com/ntbosscher/gobase/jv"
 )
 
 var pipe runtime.Pipeline
@@ -293,11 +294,64 @@ type AnalyzeTable struct {
 	Cells       []*AnalyzeCell
 }
 
+func (a *AnalyzeTable) Pages() []int {
+	pages := make(map[int]bool)
+
+	for _, cell := range a.Cells {
+		for _, region := range cell.BoundingRegions {
+			pages[region.PageNumber] = true
+		}
+	}
+
+	result := make([]int, 0, len(pages))
+	for page := range pages {
+		result = append(result, page)
+	}
+
+	return result
+}
+
+func (a *AnalyzeTable) GetHeader() []string {
+	headers := jv.Filter(a.Cells, func(input *AnalyzeCell) bool {
+		return input.Kind == "columnHeader"
+	})
+
+	rows := jv.Mapper(headers, func(input *AnalyzeCell) int {
+		return input.RowIndex
+	})
+
+	if len(rows) > 1 {
+		rowIndex := jv.Min(rows...)
+		headers = jv.Filter(headers, func(input *AnalyzeCell) bool {
+			return input.RowIndex == rowIndex
+		})
+	}
+
+	jv.SortFx(headers, func(a *AnalyzeCell) float64 {
+		return float64(a.ColumnIndex)
+	})
+
+	return jv.Mapper(headers, func(input *AnalyzeCell) string {
+		return input.Content
+	})
+}
+
+func (a *AnalyzeTable) HeadersMatch(other *AnalyzeTable) bool {
+	return jv.ArrayItemCompare(a.GetHeader(), other.GetHeader())
+}
+
 type AnalyzeCell struct {
-	Kind        string
+	Kind        string // columnHeader, ""
 	RowIndex    int
 	ColumnIndex int
 	Content     string
 	ColumnSpan  int
 	RowSpan     int
+
+	BoundingRegions []*AnalyzeBoundingRegion
+}
+
+type AnalyzeBoundingRegion struct {
+	PageNumber int
+	Polygon    []float64
 }
