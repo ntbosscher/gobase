@@ -14,7 +14,9 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/ntbosscher/gobase/env"
 	"github.com/ntbosscher/gobase/er"
+	"github.com/ntbosscher/gobase/jv"
 	"github.com/ntbosscher/gobase/model"
+	"github.com/ntbosscher/gobase/model/modelutil"
 	"github.com/ntbosscher/gobase/pqshared"
 	"github.com/pkg/errors"
 )
@@ -350,15 +352,18 @@ func (w *watcherInfo) getPredictedStart() (time.Time, string, bool) {
 	}{}
 	ctx := context.Background()
 
+	w.muListeningFor.RLock()
+	defer w.muListeningFor.RUnlock()
+
 	err := model.WithTx(ctx, func(ctx context.Context, tx *sqlx.Tx) error {
 		return model.GetContext(ctx, info, `
 			select queue_name, min(start_after) "start_after"
 			from pq_worker_queue 
-			where started_at is null
+			where started_at is null and queue_name = any ($1)
 			group by queue_name
 			order by min(start_after) asc
 			limit 1
-		`)
+		`, modelutil.PqArray(jv.GetMapKeys(w.listeningFor)))
 	})
 
 	if err != nil {
