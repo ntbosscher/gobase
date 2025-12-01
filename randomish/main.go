@@ -5,12 +5,18 @@ package randomish
 
 import (
 	"math/rand"
+	"sync"
 	"time"
 )
 
 var random = rand.New(rand.NewSource(time.Now().UnixNano()))
+var muRandom = &sync.Mutex{}
 
 func randomString(length int, charset string) string {
+	// use lock b/c math/rand is not thread-safe
+	muRandom.Lock()
+	defer muRandom.Unlock()
+
 	b := make([]byte, length)
 	for i := range b {
 		b[i] = charset[random.Intn(len(charset))]
