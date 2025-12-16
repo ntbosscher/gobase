@@ -22,12 +22,15 @@ import (
 )
 
 var addListen chan *WorkerInfo
+var Logger = log.New(os.Stderr, "pqworkerqueue", log.Llongfile)
+var LoggerPrintJobStats = false
 
 func init() {
 
 	addListen = make(chan *WorkerInfo)
 	var err error
 
+	LoggerPrintJobStats = env.OptionalBool("PQWORKQUEUE_PRINT_JOB_STATS", false)
 	skipAll := env.OptionalBool("PQWORKQUEUE_SKIP_MIGRATE", false)
 	skipThis := env.Optional("PQWORKQUEUE_MIGRATION_LEVEL", "") == "2026-June-01"
 
@@ -219,6 +222,7 @@ func (w *watcherInfo) startWork(queueName string) (mightBeMore bool) {
 	defer cancel()
 
 	err := model.WithTx(context.Background(), func(ctx context.Context, tx *sqlx.Tx) error {
+
 		id, message, err := getAndClaimJob(ctx, queueName)
 		if err != nil {
 			if err != sql.ErrNoRows {
@@ -229,11 +233,16 @@ func (w *watcherInfo) startWork(queueName string) (mightBeMore bool) {
 		}
 
 		var result []byte
+		tStart := time.Now()
 
 		err2 := model.WithTx2(context.Background(), isolationLevel, func(ctx context.Context, tx *sqlx.Tx) (innerErr error) {
 			defer er.HandleErrors(func(input *er.HandlerInput) {
 				innerErr = input.Error
 			})
+
+			if LoggerPrintJobStats {
+				Logger.Println("starting job for", "queue:"+queueName, "arg:"+getDebugStringForMessage(message))
+			}
 
 			exec := callback
 			for _, item := range middleware {
@@ -243,6 +252,10 @@ func (w *watcherInfo) startWork(queueName string) (mightBeMore bool) {
 			result = exec(ctx, id, message)
 			return
 		})
+
+		if LoggerPrintJobStats {
+			Logger.Println("finished job for", "queue:"+queueName, "arg:"+getDebugStringForMessage(message), "duration:"+time.Since(tStart).String())
+		}
 
 		commitErr := nulls.String{}
 		if err2 != nil {
@@ -276,6 +289,28 @@ func (w *watcherInfo) startWork(queueName string) (mightBeMore bool) {
 	}
 
 	return true
+}
+
+func getDebugStringForMessage(content json.RawMessage) string {
+	if len(content) < 100 {
+		return checkValidCharacters(content)
+	}
+
+	return checkValidCharacters(content[:100]) + "..."
+}
+
+func checkValidCharacters(value []byte) string {
+	out := make([]byte, len(value))
+
+	for i, c := range value {
+		if c > ' ' && c < '~' || c == '\n' || c == '\r' || c == '\t' {
+			out[i] = c
+		} else {
+			out[i] = '*'
+		}
+	}
+
+	return string(out)
 }
 
 func getAndClaimJob(ctx context.Context, queueName string) (id string, message json.RawMessage, err error) {
@@ -403,8 +438,6 @@ func cleaner() {
 		}
 	}
 }
-
-var Logger = log.New(os.Stderr, "pqworkerqueue", log.Llongfile)
 
 func waitForNotification(ctx context.Context, callback func(queueName string), signalC chan bool) {
 	conn, err := pqshared.Pool.Acquire(ctx)
