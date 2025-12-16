@@ -23,14 +23,15 @@ import (
 
 var addListen chan *WorkerInfo
 var Logger = log.New(os.Stderr, "pqworkerqueue", log.Llongfile)
-var LoggerPrintJobStats = false
+var Debug = log.New(os.Stdout, "pqworkerqueue", log.Llongfile)
+var DebugPrintJobStats = false
 
 func init() {
 
 	addListen = make(chan *WorkerInfo)
 	var err error
 
-	LoggerPrintJobStats = env.OptionalBool("PQWORKQUEUE_PRINT_JOB_STATS", false)
+	DebugPrintJobStats = env.OptionalBool("PQWORKQUEUE_PRINT_JOB_STATS", false)
 	skipAll := env.OptionalBool("PQWORKQUEUE_SKIP_MIGRATE", false)
 	skipThis := env.Optional("PQWORKQUEUE_MIGRATION_LEVEL", "") == "2026-June-01"
 
@@ -240,8 +241,8 @@ func (w *watcherInfo) startWork(queueName string) (mightBeMore bool) {
 				innerErr = input.Error
 			})
 
-			if LoggerPrintJobStats {
-				Logger.Println("starting job for", "queue:"+queueName, "arg:"+getDebugStringForMessage(message))
+			if DebugPrintJobStats {
+				Debug.Println("starting job for", "queue:"+queueName, "arg:"+getDebugStringForMessage(message))
 			}
 
 			exec := callback
@@ -253,8 +254,8 @@ func (w *watcherInfo) startWork(queueName string) (mightBeMore bool) {
 			return
 		})
 
-		if LoggerPrintJobStats {
-			Logger.Println("finished job for", "queue:"+queueName, "arg:"+getDebugStringForMessage(message), "duration:"+time.Since(tStart).String())
+		if DebugPrintJobStats {
+			Debug.Println("finished job for", "queue:"+queueName, "arg:"+getDebugStringForMessage(message), "duration:"+time.Since(tStart).String())
 		}
 
 		commitErr := nulls.String{}
