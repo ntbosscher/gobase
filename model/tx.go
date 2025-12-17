@@ -15,6 +15,7 @@ type txInfo struct {
 	tx                           *sqlx.Tx
 	commitCallbacks              []func()
 	rollbackOrCommitErrCallbacks []func()
+	lastError                    error
 }
 
 type BeginTx2Options struct {
@@ -55,6 +56,20 @@ func BeginTx2(ctx context.Context, opts *BeginTx2Options) (context.Context, func
 	}
 
 	return ctx, cleanup, nil
+}
+
+func reportTxError(ctx context.Context, err error) {
+	if err == nil {
+		return
+	}
+
+	// no rows error isn't really an error
+	if errors.Is(err, sql.ErrNoRows) {
+		return
+	}
+
+	info := getInfo(ctx)
+	info.lastError = err
 }
 
 func BeginTx(ctx context.Context, traceId string) (context.Context, func(), error) {
@@ -152,4 +167,9 @@ func WithTx2(ctx context.Context, isolation sql.IsolationLevel, inTx func(ctx co
 	}
 
 	return Commit(ctx)
+}
+
+func TxLastError(ctx context.Context) error {
+	info := getInfo(ctx)
+	return info.lastError
 }

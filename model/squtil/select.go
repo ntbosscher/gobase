@@ -2,10 +2,10 @@ package squtil
 
 import (
 	"context"
-	"database/sql"
+	"log"
+
 	sq "github.com/Masterminds/squirrel"
 	"github.com/ntbosscher/gobase/model"
-	"log"
 )
 
 func verboseLog(err error, query string, args ...interface{}) {
@@ -36,7 +36,7 @@ func SelectContext(ctx context.Context, dest interface{}, qr sq.Sqlizer) error {
 
 // QueryRowContext runs the query and expects exactly 1 row. The results can be collected
 // by calling .Scan() on the result
-func QueryRowContext(ctx context.Context, qr sq.Sqlizer) *sql.Row {
+func QueryRowContext(ctx context.Context, qr sq.Sqlizer) *model.Row {
 	sqlStr, args, err := qr.ToSql()
 	if err != nil {
 		verboseLog(err, sqlStr, args...)

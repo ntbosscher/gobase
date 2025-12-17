@@ -2,6 +2,7 @@ package squtil
 
 import (
 	"context"
+
 	sq "github.com/Masterminds/squirrel"
 	"github.com/ntbosscher/gobase/er"
 	"github.com/ntbosscher/gobase/model"
@@ -23,7 +24,7 @@ func MustSelectContext(ctx context.Context, dest interface{}, qr sq.Sqlizer) {
 
 // MustQueryRowContext runs the query and expects exactly 1 row. The results can be collected
 // by calling .Scan() on the result
-func MustQueryRowContext(ctx context.Context, qr sq.Sqlizer) *model.MustQueryRowResult {
+func MustQueryRowContext(ctx context.Context, qr sq.Sqlizer) *model.Row {
 	sqlStr, args, err := qr.ToSql()
 	if err != nil {
 		verboseLog(err, sqlStr, args...)
