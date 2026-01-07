@@ -1,7 +1,6 @@
 package res
 
 import (
-	"github.com/ntbosscher/gobase/env"
 	"io"
 	"log"
 	"net/http"
@@ -11,6 +10,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+
+	"github.com/ntbosscher/gobase/env"
 )
 
 var sourceMapToken = ""
