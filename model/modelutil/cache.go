@@ -12,15 +12,26 @@ var cacheKey cacheKeyType = "modelutil-cache"
 func CacheMiddleware(next http.Handler) http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		req = req.WithContext(context.WithValue(req.Context(), cacheKey, &outerCache{
-			inner: map[string]interface{}{},
-		}))
+		ctx := req.Context()
+		req = req.WithContext(NewCacheScope2(ctx, "per-request:scope"))
 
 		next.ServeHTTP(w, req)
 	})
 }
 
+func NewCacheScope(ctx context.Context) context.Context {
+	return NewCacheScope2(ctx, "-")
+}
+
+func NewCacheScope2(ctx context.Context, label string) context.Context {
+	return context.WithValue(ctx, cacheKey, &outerCache{
+		label: label,
+		inner: map[string]interface{}{},
+	})
+}
+
 type outerCache struct {
+	label string
 	inner map[string]interface{}
 }
 
