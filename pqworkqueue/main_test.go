@@ -3,12 +3,14 @@ package pqworkqueue
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/ntbosscher/gobase/er"
+	"github.com/ntbosscher/gobase/jv"
 	"github.com/ntbosscher/gobase/model"
 )
 
@@ -102,4 +104,81 @@ func TestBasic(t *testing.T) {
 	if value != 1 {
 		t.Fatal("unexpected debounce count", value)
 	}
+}
+
+func TestMerge(t *testing.T) {
+	model.SetStructNameMapping(model.SnakeCaseStructNameMapping)
+
+	type Arg struct {
+		Name string
+		IDs  []int
+	}
+
+	var queue = NewQueue2[*Arg]("testing_queue")
+
+	add := func(key string, arg *Arg) {
+		defer er.HandleErrors(func(input *er.HandlerInput) {
+			fmt.Println(input)
+		})
+
+		ctx := context.Background()
+
+		er.Check(model.WithTx(ctx, func(ctx context.Context, tx *sqlx.Tx) error {
+			queue.MustAddOpt(ctx, arg, &AddOption2[*Arg]{
+				DebounceKey: key,
+				StartAfter:  time.Now().Add(1 * time.Second),
+				DebounceMerge: func(exist *Arg, new *Arg) (*Arg, error) {
+					exist.IDs = jv.Unique(append(exist.IDs, new.IDs...))
+					return exist, nil
+				},
+			})
+
+			return nil
+		}))
+	}
+
+	result := make(chan *Arg)
+
+	queue.RegisterWorker(1, func(ctx context.Context, arg *Arg) []byte {
+		t.Log("worker", arg.Name, arg.IDs)
+		result <- arg
+		return nil
+	})
+
+	add("a", &Arg{
+		Name: "A",
+		IDs:  []int{1},
+	})
+
+	add("b", &Arg{
+		Name: "B",
+		IDs:  []int{3},
+	})
+
+	add("a", &Arg{
+		Name: "A",
+		IDs:  []int{2},
+	})
+
+	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+
+	for i := 0; i < 2; i++ {
+		select {
+		case out := <-result:
+			if out.Name == "A" {
+				if !jv.ArrayItemCompare(out.IDs, []int{1, 2}) {
+					t.Error("unexpected merge", out.IDs)
+				}
+			} else if out.Name == "B" {
+				if !jv.ArrayItemCompare(out.IDs, []int{3}) {
+					t.Error("unexpected merge", out.IDs)
+				}
+			}
+		case <-ctx.Done():
+			t.Fatal("timed out")
+		}
+	}
+
 }
