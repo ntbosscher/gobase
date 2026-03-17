@@ -222,7 +222,7 @@ func handleSortOrder(ctx context.Context, el reflect.Value, table string, id int
 				er.Throw("can only use `rq:sort_order_omit` tag on booleans")
 			}
 
-			omit += "case when" + mapper(f.Name) + " = false then 0 else 1 end, "
+			omit += "case when " + mapper(f.Name) + " = false then 0 else 1 end, "
 		}
 	}
 
