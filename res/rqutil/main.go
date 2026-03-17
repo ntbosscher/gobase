@@ -218,11 +218,11 @@ func handleSortOrder(ctx context.Context, el reflect.Value, table string, id int
 		}
 
 		if tag["sort_order_omit"] {
-			if mapper(f.Name) != "Archived" {
-				er.Throw("can only use `rq:sort_order_omit` tag on Archived")
+			if f.Type != reflect.TypeOf(false) {
+				er.Throw("can only use `rq:sort_order_omit` tag on booleans")
 			}
 
-			omit = "case when" + mapper(f.Name) + " = false then 0 else 1 end,"
+			omit += "case when" + mapper(f.Name) + " = false then 0 else 1 end, "
 		}
 	}
 
