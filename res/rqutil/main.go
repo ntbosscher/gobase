@@ -218,7 +218,7 @@ func handleSortOrder(ctx context.Context, el reflect.Value, table string, id int
 		}
 
 		if tag["sort_order_omit"] {
-			if f.Type != reflect.TypeOf(false) {
+			if f.Type.Kind() != reflect.Bool {
 				er.Throw("can only use `rq:sort_order_omit` tag on booleans")
 			}
 
