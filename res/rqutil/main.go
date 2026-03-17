@@ -200,6 +200,7 @@ func handleSortOrder(ctx context.Context, el reflect.Value, table string, id int
 
 	orderCol := ""
 	partition := ""
+	omit := ""
 
 	for i := 0; i < typ.NumField(); i++ {
 		f := typ.Field(i)
@@ -215,6 +216,14 @@ func handleSortOrder(ctx context.Context, el reflect.Value, table string, id int
 
 			orderCol = mapper(f.Name)
 		}
+
+		if tag["sort_order_omit"] {
+			if mapper(f.Name) != "Archived" {
+				er.Throw("can only use `rq:sort_order_omit` tag on Archived")
+			}
+
+			omit = "case when" + mapper(f.Name) + " = false then 0 else 1 end,"
+		}
 	}
 
 	if orderCol == "" {
@@ -229,7 +238,9 @@ func handleSortOrder(ctx context.Context, el reflect.Value, table string, id int
 		from (
 		    select id, rank() over (
 		        `+partition+` 
-		        order by `+orderCol+`, 
+		        order by
+					`+omit+`
+					`+orderCol+`, 
 		            case when id = $1 then 0 else id end -- current id first, other ids in insert-order
 			) "rank"
 		    from `+table+`
