@@ -14,7 +14,6 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/ntbosscher/gobase/env"
 	"github.com/ntbosscher/gobase/er"
-	"github.com/ntbosscher/gobase/jv"
 	"github.com/ntbosscher/gobase/model"
 	"github.com/ntbosscher/gobase/model/modelutil"
 	"github.com/ntbosscher/gobase/pqshared"
@@ -363,7 +362,11 @@ func (w *watcherInfo) checkWorkBasedOnTimers(checkC chan bool) {
 	name := ""
 
 	for {
-		timer.Reset(nextPredictedStart.Sub(time.Now()))
+		if name != "" {
+			timer.Reset(nextPredictedStart.Sub(time.Now()))
+		} else {
+			timer.Reset(2 * time.Second)
+		}
 
 		select {
 		case <-checkC:
@@ -391,6 +394,18 @@ func (w *watcherInfo) getPredictedStart() (time.Time, string, bool) {
 	w.muListeningFor.RLock()
 	defer w.muListeningFor.RUnlock()
 
+	var validNames []string
+	for name, lInfo := range w.listeningFor {
+		if !lInfo.isAtConcurrencyLimit() {
+			validNames = append(validNames, name)
+		}
+	}
+
+	if len(validNames) == 0 {
+		Logger.Println("predicted start time: everyone is busy")
+		return time.Time{}, "", false
+	}
+
 	err := model.WithTx(ctx, func(ctx context.Context, tx *sqlx.Tx) error {
 		return model.GetContext(ctx, info, `
 			select queue_name, min(start_after) "start_after"
@@ -399,7 +414,7 @@ func (w *watcherInfo) getPredictedStart() (time.Time, string, bool) {
 			group by queue_name
 			order by min(start_after) asc
 			limit 1
-		`, modelutil.PqArray(jv.GetMapKeys(w.listeningFor)))
+		`, modelutil.PqArray(validNames))
 	})
 
 	if err != nil {
@@ -520,6 +535,13 @@ type WorkerInfo struct {
 
 	nActive   int
 	muNActive sync.Mutex
+}
+
+func (w *WorkerInfo) isAtConcurrencyLimit() bool {
+	w.muNActive.Lock()
+	defer w.muNActive.Unlock()
+
+	return w.nActive >= w.NConcurrent
 }
 
 func (w *WorkerInfo) concurrencyCheck() (cancel func(), ok bool) {

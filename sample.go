@@ -11,6 +11,7 @@ import (
 	"github.com/ntbosscher/gobase/integrations/s3fs"
 	"github.com/ntbosscher/gobase/model"
 	"github.com/ntbosscher/gobase/model/squtil"
+	"github.com/ntbosscher/gobase/pqworkqueue"
 	"github.com/ntbosscher/gobase/requestip"
 	"github.com/ntbosscher/gobase/res"
 	"github.com/ntbosscher/gobase/res/r"
@@ -24,6 +25,13 @@ func init() {
 	// enable error logging
 	res.SetErrorResponseLogging(os.Stdout)
 }
+
+type QueueInput struct {
+	A int
+	B int
+}
+
+var calcqueue = pqworkqueue.NewQueue2[*QueueInput]("my_calc_queue")
 
 func main() {
 
