@@ -24,6 +24,7 @@ var addListen chan *WorkerInfo
 var Logger = log.New(os.Stderr, "pqworkerqueue", log.Llongfile)
 var Debug = log.New(os.Stdout, "pqworkerqueue", log.Llongfile)
 var DebugPrintJobStats = false
+var FallbackCheckInterval = 5 * time.Minute
 
 func init() {
 
@@ -369,7 +370,7 @@ func (w *watcherInfo) checkWorkBasedOnTimers(checkC chan bool) {
 		if name != "" {
 			timer.Reset(nextPredictedStart.Sub(time.Now()))
 		} else {
-			timer.Reset(2 * time.Second)
+			timer.Reset(FallbackCheckInterval)
 		}
 
 		select {
