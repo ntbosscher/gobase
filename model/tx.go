@@ -94,7 +94,7 @@ func getInfo(ctx context.Context) *txInfo {
 func Rollback(ctx context.Context) error {
 	info := getInfo(ctx)
 	if info.commitCalled {
-		return errCommitAlreadyCalled
+		return ErrCommitAlreadyCalled
 	}
 
 	info.commitCalled = true
@@ -109,12 +109,12 @@ func Rollback(ctx context.Context) error {
 	return err
 }
 
-var errCommitAlreadyCalled = errors.New("transaction already closed")
+var ErrCommitAlreadyCalled = errors.New("transaction already closed")
 
 func Commit(ctx context.Context) error {
 	info := getInfo(ctx)
 	if info.commitCalled {
-		return errCommitAlreadyCalled
+		return ErrCommitAlreadyCalled
 	}
 
 	info.commitCalled = true

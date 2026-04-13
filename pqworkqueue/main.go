@@ -259,8 +259,12 @@ func (w *watcherInfo) startWork(queueName string) (mightBeMore bool) {
 
 		commitErr := nulls.String{}
 		if err2 != nil {
-			Logger.Println("failed to process job", err2)
-			commitErr = nulls.NewString(err2.Error())
+			if errors.Is(err2, model.ErrCommitAlreadyCalled) {
+				// already committed is fine
+			} else {
+				Logger.Println("failed to process job", err2)
+				commitErr = nulls.NewString(err2.Error())
+			}
 		}
 
 		err = model.ExecContext(ctx, `
