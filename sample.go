@@ -1,16 +1,19 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"github.com/Masterminds/squirrel"
 	"github.com/ntbosscher/gobase/auth"
 	"github.com/ntbosscher/gobase/auth/httpauth"
+	"github.com/ntbosscher/gobase/bgtaskutil"
 	"github.com/ntbosscher/gobase/env"
 	"github.com/ntbosscher/gobase/er"
 	"github.com/ntbosscher/gobase/httpdefaults"
 	"github.com/ntbosscher/gobase/integrations/s3fs"
 	"github.com/ntbosscher/gobase/model"
 	"github.com/ntbosscher/gobase/model/squtil"
+	"github.com/ntbosscher/gobase/pdfprinter/pdfprinter2"
 	"github.com/ntbosscher/gobase/pqworkqueue"
 	"github.com/ntbosscher/gobase/requestip"
 	"github.com/ntbosscher/gobase/res"
@@ -21,17 +24,37 @@ import (
 	"time"
 )
 
+type PrintQueueInput struct {
+	HTML string
+}
+
+var printQueue = pqworkqueue.NewQueue2[*PrintQueueInput]("printer")
+
 func init() {
 	// enable error logging
 	res.SetErrorResponseLogging(os.Stdout)
-}
 
-type QueueInput struct {
-	A int
-	B int
-}
+	printQueue.RegisterWorker(1, func(ctx context.Context, arg *PrintQueueInput) (out []byte) {
+		defer er.HandleErrors(func(input *er.HandlerInput) {
+			out = bgtaskutil.JsonErrorResult2(input.Error)
+		})
 
-var calcqueue = pqworkqueue.NewQueue2[*QueueInput]("my_calc_queue")
+		contents, err := pdfprinter2.Print(ctx, arg.HTML)
+		er.Check(err)
+
+		er.Check(s3fs.Upload(ctx, []*s3fs.UploadInput{
+			{
+				FileName: "output.pdf",
+				Key:      "print-" + time.Now().Format("2006-01-02 15:04:05"),
+				Body:     bytes.NewReader(contents),
+			},
+		}))
+
+		return bgtaskutil.JsonResult(map[string]any{
+			"pdfUrl": "https://s3.amazonaws.com/...",
+		})
+	})
+}
 
 func main() {
 
@@ -57,6 +80,16 @@ func main() {
 
 	// simple route
 	rt.Add("GET", "/api/products", getProducts)
+
+	rt.Add("POST", "/api/print-my-html", func(rq *res.Request) res.Responder {
+		ctx := rq.Context()
+
+		taskId := printQueue.MustAdd(ctx, &PrintQueueInput{
+			HTML: rq.MultipartValue("html"),
+		})
+
+		return bgtaskutil.TaskResult(taskId)
+	})
 
 	// restrict to internal users
 	rt.Add("POST", "/api/product", todo, RoleInternal)
