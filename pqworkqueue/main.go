@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/gobuffalo/nulls"
-	"github.com/gofrs/uuid"
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/ntbosscher/gobase/env"
 	"github.com/ntbosscher/gobase/er"
@@ -687,7 +687,7 @@ func (q *Queue) add(ctx context.Context, startAfter time.Time, debounceKey strin
 		return "", errors.Wrap(err, "failed to json-encode work-queue arg")
 	}
 
-	uuidId, err := uuid.NewV4()
+	uuidId, err := uuid.NewRandom()
 	if err != nil {
 		return "", errors.Wrap(err, "failed to assign id to job")
 	}
