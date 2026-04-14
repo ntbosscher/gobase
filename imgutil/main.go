@@ -1,9 +1,10 @@
 package imgutil
 
 import (
-	"github.com/nfnt/resize"
 	"image"
 	"image/color"
+
+	xdraw "golang.org/x/image/draw"
 )
 
 // ResizeContain scales the source image to fit in the width/height provided. If the image
@@ -15,12 +16,19 @@ func ResizeContain(img image.Image, width int, height int, padColor color.Color)
 	srcRatio := float32(bounds.Dx()) / float32(bounds.Dy())
 	dstRatio := float32(width) / float32(height)
 
-	// scale so the long side matches it's dimension
+	// scale so the long side matches its dimension
+	var dstWidth, dstHeight int
 	if srcRatio > dstRatio {
-		img = resize.Resize(uint(width), 0, img, resize.Lanczos3)
+		dstWidth = width
+		dstHeight = int(float32(width) / srcRatio)
 	} else {
-		img = resize.Resize(0, uint(height), img, resize.Lanczos3)
+		dstHeight = height
+		dstWidth = int(float32(height) * srcRatio)
 	}
+
+	scaled := image.NewRGBA(image.Rect(0, 0, dstWidth, dstHeight))
+	xdraw.CatmullRom.Scale(scaled, scaled.Bounds(), img, img.Bounds(), xdraw.Over, nil)
+	img = scaled
 
 	bounds = img.Bounds()
 
