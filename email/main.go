@@ -2,17 +2,19 @@ package email
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"github.com/mailgun/mailgun-go"
-	"github.com/ntbosscher/gobase/env"
 	"html/template"
-	"io/ioutil"
+	"io"
 	"mime"
 	"net/http"
 	"path"
 	"strings"
+
+	"github.com/mailgun/mailgun-go/v4"
+	"github.com/ntbosscher/gobase/env"
 )
 
 var mailgunDomain string
@@ -214,7 +216,7 @@ type Email struct {
 	Attachments []*Attachment
 }
 
-func (e *Email) Send() error {
+func (e *Email) Send2(ctx context.Context) error {
 	if len(e.To) == 0 {
 		return errors.New("no email recipients specified")
 	}
@@ -229,12 +231,16 @@ func (e *Email) Send() error {
 
 	switch provider {
 	case mailgunProvider:
-		return e.sendMailgun()
+		return e.sendMailgun(ctx)
 	case postmarkProvider:
-		return e.sendPostmark()
+		return e.sendPostmark(ctx)
 	default:
 		return errors.New("invalid mail provider '" + provider + "'")
 	}
+}
+
+func (e *Email) Send() error {
+	return e.Send2(context.Background())
 }
 
 type postmarkAttachment struct {
@@ -243,7 +249,7 @@ type postmarkAttachment struct {
 	ContentType string
 }
 
-func (e *Email) sendPostmark() error {
+func (e *Email) sendPostmark(ctx context.Context) error {
 	if env.IsTesting {
 		e.To = []string{"test@blackhole.postmarkapp.com"}
 	}
@@ -286,7 +292,7 @@ func (e *Email) sendPostmark() error {
 		return err
 	}
 
-	rq, err := http.NewRequest("POST", "https://api.postmarkapp.com/email", bytes.NewReader(jsonBytes))
+	rq, err := http.NewRequestWithContext(ctx, "POST", "https://api.postmarkapp.com/email", bytes.NewReader(jsonBytes))
 	if err != nil {
 		return err
 	}
@@ -302,7 +308,7 @@ func (e *Email) sendPostmark() error {
 
 	defer res.Body.Close()
 
-	resultJson, err := ioutil.ReadAll(res.Body)
+	resultJson, err := io.ReadAll(res.Body)
 	if err != nil {
 		return err
 	}
@@ -314,9 +320,9 @@ func (e *Email) sendPostmark() error {
 	return nil
 }
 
-func (e *Email) sendMailgun() error {
+func (e *Email) sendMailgun(ctx context.Context) error {
 	mg := mailgun.NewMailgun(mailgunDomain, mailgunAPIKey)
-	msg := mg.NewMessage(e.From, e.Subject, e.Text, e.To...)
+	msg := mailgun.NewMessage(e.From, e.Subject, e.Text, e.To...)
 
 	if env.IsTesting {
 		msg.EnableTestMode()
@@ -327,13 +333,13 @@ func (e *Email) sendMailgun() error {
 	}
 
 	if e.HTML != "" {
-		msg.SetHtml(e.HTML)
+		msg.SetHTML(e.HTML)
 	}
 
 	for _, attachment := range e.Attachments {
 		msg.AddBufferAttachment(attachment.Name, attachment.Value)
 	}
 
-	_, _, err := mg.Send(msg)
+	_, _, err := mg.Send(ctx, msg)
 	return err
 }
