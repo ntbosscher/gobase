@@ -30,14 +30,14 @@ type message struct {
 	when   time.Time
 	str    []byte
 	caller string
-	extra  map[string]string
+	extra  map[string]any
 }
 
 type LogSender struct {
 	key       string
 	start     time.Time
 	parent    string
-	startMeta map[string]string
+	startMeta map[string]any
 
 	hasLogged *atomic.Bool
 }
@@ -90,7 +90,7 @@ func NewContext(ctx context.Context, opts ...Option) context.Context {
 	send = &LogSender{
 		key:       makeKey(ctx, start),
 		hasLogged: &atomic.Bool{},
-		startMeta: map[string]string{
+		startMeta: map[string]any{
 			"start": start.Format(time.RFC3339),
 		},
 	}
@@ -149,12 +149,21 @@ func Println(ctx context.Context, v ...any) {
 	sender := get(ctx)
 	checkSenderInit(ctx, sender)
 
+	buf := &bytes.Buffer{}
+
+	for i, value := range v {
+		buf.WriteString(fmt.Sprint(value))
+		if i > 0 && len(v) > i+1 {
+			buf.WriteString(" ")
+		}
+	}
+
 	select {
 	case queue <- &message{
 		when:   time.Now(),
 		sender: get(ctx),
 		caller: getCaller(2),
-		str:    fmt.Append(nil, v...),
+		str:    buf.Bytes(),
 	}:
 	case <-ctx.Done():
 	}
@@ -173,7 +182,7 @@ func checkSenderInit(ctx context.Context, sender *LogSender) {
 	case queue <- &message{
 		when:   time.Now(),
 		sender: sender,
-		caller: getCaller(2),
+		caller: getCaller(3),
 		str:    []byte("trace-origin"),
 		extra:  sender.startMeta,
 	}:
@@ -181,7 +190,7 @@ func checkSenderInit(ctx context.Context, sender *LogSender) {
 	}
 }
 
-func PrintObj(ctx context.Context, str string, v map[string]string) {
+func PrintObj(ctx context.Context, str string, v map[string]any) {
 	sender := get(ctx)
 	checkSenderInit(ctx, sender)
 
@@ -236,6 +245,8 @@ func toJson(v any) []byte {
 	return content
 }
 
+const senderNil = "<nil>"
+
 func write(input *message) {
 	defer func() {
 		if err := recover(); err != nil {
@@ -244,7 +255,7 @@ func write(input *message) {
 	}()
 
 	parent := ""
-	senderKey := "<nil>"
+	senderKey := senderNil
 
 	if input.sender != nil {
 		senderKey = input.sender.key
