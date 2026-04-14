@@ -1,7 +1,7 @@
 package jv
 
 import (
-	"golang.org/x/exp/constraints"
+	"cmp"
 	"strings"
 )
 
@@ -35,7 +35,7 @@ func StringContainsCI(input string, substring ...string) bool {
 	return false
 }
 
-func Min[T constraints.Ordered](input ...T) T {
+func Min[T cmp.Ordered](input ...T) T {
 	m := input[0]
 
 	for _, item := range input {
@@ -47,7 +47,7 @@ func Min[T constraints.Ordered](input ...T) T {
 	return m
 }
 
-func Max[T constraints.Ordered](input ...T) T {
+func Max[T cmp.Ordered](input ...T) T {
 	m := input[0]
 
 	for _, item := range input {

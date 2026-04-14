@@ -1,11 +1,11 @@
 package jv
 
 import (
+	"cmp"
 	"sort"
 
 	"github.com/ntbosscher/gobase/randomish"
 	"github.com/pkg/errors"
-	"golang.org/x/exp/constraints"
 )
 
 // ArrayItemCompare checks if the two arrays are equivalent
@@ -23,7 +23,7 @@ func ArrayItemCompare[T comparable](a []T, b []T) bool {
 	return true
 }
 
-func DetectSorting[T any, U constraints.Ordered](input []T, lookup func(input T) U) (asc bool, desc bool) {
+func DetectSorting[T any, U cmp.Ordered](input []T, lookup func(input T) U) (asc bool, desc bool) {
 	fx := &sortableFx2[T]{
 		values: input,
 		less: func(a T, b T) bool {
@@ -62,7 +62,7 @@ func SortFx2[T any](input []T, less func(a T, b T) bool) {
 	sort.Sort(srt)
 }
 
-type sortable[T constraints.Ordered] struct {
+type sortable[T cmp.Ordered] struct {
 	values []T
 }
 
@@ -78,19 +78,19 @@ func (s sortable[T]) Swap(i, j int) {
 	s.values[i], s.values[j] = s.values[j], s.values[i]
 }
 
-func SortAsc[T constraints.Ordered](input []T) {
+func SortAsc[T cmp.Ordered](input []T) {
 	sort.Sort(sortable[T]{values: input})
 }
 
-func SortDesc[T constraints.Ordered](input []T) {
+func SortDesc[T cmp.Ordered](input []T) {
 	sort.Sort(sort.Reverse(sortable[T]{values: input}))
 }
 
-func IsSortedAsc[T constraints.Ordered](input []T) bool {
+func IsSortedAsc[T cmp.Ordered](input []T) bool {
 	return sort.IsSorted(sortable[T]{values: input})
 }
 
-func IsSortedDesc[T constraints.Ordered](input []T) bool {
+func IsSortedDesc[T cmp.Ordered](input []T) bool {
 	return sort.IsSorted(sort.Reverse(sortable[T]{values: input}))
 }
 
@@ -571,7 +571,7 @@ func Mode[T comparable](input ...T) T {
 	return maxValue
 }
 
-func MaxFx[T any, U constraints.Ordered](input []T, lookup func(input T) U) T {
+func MaxFx[T any, U cmp.Ordered](input []T, lookup func(input T) U) T {
 
 	if len(input) == 0 {
 		var value T

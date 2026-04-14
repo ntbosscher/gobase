@@ -28,7 +28,6 @@ require (
 	github.com/markbates/goth v1.82.0
 	github.com/pkg/errors v0.9.1
 	github.com/playwright-community/playwright-go v0.5700.1
-	golang.org/x/exp v0.0.0-20240707233637-46b078467d37
 	golang.org/x/image v0.39.0
 	golang.org/x/sys v0.38.0
 )
