@@ -158,24 +158,28 @@ func (p *printerObj) setupBrowser() (playwright.BrowserContext, context.CancelFu
 		return nil, nil, err
 	}
 
-	p.playwright, err = playwright.Run(&playwright.RunOptions{
-		Browsers: []string{"chromium"},
-	})
+	if p.playwright == nil {
+		p.playwright, err = playwright.Run(&playwright.RunOptions{
+			Browsers: []string{"chromium"},
+		})
 
-	if err != nil {
-		Logger.Println(err)
-		p.shutdownInstanceUnsafe()
-		return nil, nil, err
+		if err != nil {
+			Logger.Println(err)
+			p.shutdownInstanceUnsafe()
+			return nil, nil, err
+		}
 	}
 
-	p.chrome, err = p.playwright.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
-		Headless: playwright.Bool(true),
-	})
+	if p.chrome == nil {
+		p.chrome, err = p.playwright.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
+			Headless: playwright.Bool(true),
+		})
 
-	if err != nil {
-		Logger.Println(err)
-		p.shutdownInstanceUnsafe()
-		return nil, nil, err
+		if err != nil {
+			Logger.Println(err)
+			p.shutdownInstanceUnsafe()
+			return nil, nil, err
+		}
 	}
 
 	bctx, err := p.chrome.NewContext()
