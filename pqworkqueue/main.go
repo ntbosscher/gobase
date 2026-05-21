@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -158,6 +159,29 @@ func checkMissingQueueLogGate(queueName string) bool {
 
 	missingQueueNameLogGate[queueName] = time.Now()
 	return true
+}
+
+var busyLogGate = map[string]time.Time{}
+var busyLogGateLock sync.Mutex
+
+func checkBusyLogGate(queueNames []string) []string {
+
+	busyLogGateLock.Lock()
+	defer busyLogGateLock.Unlock()
+
+	var out []string
+	for _, item := range queueNames {
+		value, ok := busyLogGate[item]
+
+		if ok && time.Since(value) < time.Minute {
+			continue
+		}
+
+		out = append(out, item)
+		busyLogGate[item] = time.Now()
+	}
+
+	return out
 }
 
 func (w *watcherInfo) startWorkConcurrencyCheck(queueName string) (ok bool, isolationLevel sql.IsolationLevel, callback Worker, middleware []Middleware, retainResultsFor time.Duration, delayCallback DelayForLoadCallback, done func()) {
@@ -400,14 +424,21 @@ func (w *watcherInfo) getPredictedStart() (time.Time, string, bool) {
 	defer w.muListeningFor.RUnlock()
 
 	var validNames []string
+	var busyNames []string
 	for name, lInfo := range w.listeningFor {
 		if !lInfo.isAtConcurrencyLimit() {
 			validNames = append(validNames, name)
+		} else {
+			busyNames = append(busyNames, name)
 		}
 	}
 
 	if len(validNames) == 0 {
-		Logger.Println("predicted start time: everyone is busy")
+		loggable := checkBusyLogGate(busyNames)
+		if len(loggable) > 0 {
+			Logger.Println("predicted start time: everyone is busy: checked=", strings.Join(loggable, ","))
+		}
+
 		return time.Time{}, "", false
 	}
 
