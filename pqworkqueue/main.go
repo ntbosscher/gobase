@@ -55,6 +55,9 @@ func init() {
 			retain_until timestamp null,
 			commit_error text null
 		);`)
+		if err != nil {
+			log.Fatal("failed to setup worker table: ", err)
+		}
 
 		_, err = pqshared.Pool.Exec(context.Background(), `alter table pq_worker_queue 
     		add column if not exists debounce_key text not null default '',
@@ -69,7 +72,13 @@ func init() {
 			log.Fatal("failed to setup worker table: ", err)
 		}
 
-		_, err = pqshared.Pool.Exec(context.Background(), `create index if not exists ix_pq_worker_queue_pending on pq_worker_queue (queue_name, start_after) where started_at is not null;`)
+		// remove old index: create index if not exists ix_pq_worker_queue_pending on pq_worker_queue (queue_name, start_after) where started_at is not null;
+		_, err = pqshared.Pool.Exec(context.Background(), `drop index if exists ix_pq_worker_queue_pending;`)
+		if err != nil {
+			log.Fatal("failed to setup worker table: ", err)
+		}
+
+		_, err = pqshared.Pool.Exec(context.Background(), `create index if not exists ix_pq_worker_queue_pending2 on pq_worker_queue (queue_name, start_after) where started_at is null;`)
 		if err != nil {
 			log.Fatal("failed to setup worker table: ", err)
 		}
@@ -94,6 +103,8 @@ type watcherInfo struct {
 	muListeningFor          sync.RWMutex
 	listeningFor            map[string]*WorkerInfo
 	defaultTxIsolationLevel sql.IsolationLevel
+
+	signal chan string
 }
 
 func watcher() {
@@ -118,19 +129,17 @@ func watcher() {
 	w := &watcherInfo{
 		listeningFor:            map[string]*WorkerInfo{},
 		defaultTxIsolationLevel: sql.IsolationLevel(defaultTxIsolationLevel),
-	}
 
-	signalTimers := make(chan bool)
+		signal: make(chan string, 1),
+	}
 
 	go w.addNewListeners()
-	go w.checkWorkBasedOnTimers(signalTimers)
+	go w.monitorScheduled()
+	go w.monitorDbNotifications()
 
-	for {
-		waitForNotification(context.Background(), w.processWork, signalTimers)
-
-		// delay re-setting up connection b/c this is either a network or infrastructure issue
-		<-time.After(1 * time.Second)
-	}
+	wait := sync.WaitGroup{}
+	wait.Add(3)
+	wait.Wait()
 }
 
 func (w *watcherInfo) processWork(queueName string) {
@@ -151,9 +160,17 @@ func (w *watcherInfo) processWork(queueName string) {
 			defer er.HandleErrors(func(input *er.HandlerInput) {
 				Logger.Println(input.Error, input.StackTrace)
 			})
-			defer done()
 
-			w.startWork(queueName, isolationLevel, callback, middleware, retainResultsFor, delayCallback, claimed)
+			defer done()
+			didWork := w.startWork(queueName, isolationLevel, callback, middleware, retainResultsFor, delayCallback, claimed)
+			if didWork {
+
+				select {
+				case w.signal <- queueName:
+				default:
+				}
+
+			}
 		}()
 
 		// Wait only until the job is claimed (a fast DB op), then loop to dispatch the next one.
@@ -243,7 +260,8 @@ func (w *watcherInfo) startWorkConcurrencyCheck(queueName string) (ok bool, isol
 // a job has been claimed (so the caller can dispatch the next one in parallel), or false if no job
 // was available (so the caller stops looping). The claim, callback and result-store all happen in a
 // single outer transaction, so a crash mid-job rolls back `started_at` and the job is retried.
-func (w *watcherInfo) startWork(queueName string, isolationLevel sql.IsolationLevel, callback Worker, middleware []Middleware, retainResultsFor time.Duration, delayCallback DelayForLoadCallback, claimed chan bool) {
+// It returns ranJob=true if a job was claimed (and therefore a concurrency slot is about to free).
+func (w *watcherInfo) startWork(queueName string, isolationLevel sql.IsolationLevel, callback Worker, middleware []Middleware, retainResultsFor time.Duration, delayCallback DelayForLoadCallback, claimed chan bool) (ranJob bool) {
 
 	claimSignalled := false
 	signalClaimed := func(v bool) {
@@ -292,6 +310,7 @@ func (w *watcherInfo) startWork(queueName string, isolationLevel sql.IsolationLe
 		// We've claimed a job. Let the scheduler goroutine dispatch the next one in parallel while
 		// we run this job's callback below.
 		signalClaimed(true)
+		ranJob = true
 
 		var result []byte
 		tStart := time.Now()
@@ -347,9 +366,11 @@ func (w *watcherInfo) startWork(queueName string, isolationLevel sql.IsolationLe
 	// On a commit failure the outer transaction rolled back, so `started_at` reverted to null and
 	// the job is claimable again. We've already signalled claimed=true, so the caller will loop and
 	// re-dispatch it.
-	if err != nil && errors.Is(err, sql.ErrNoRows) {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		Logger.Println("failed to commit transaction", err.Error())
 	}
+
+	return ranJob
 }
 
 func getDebugStringForMessage(content json.RawMessage) string {
@@ -409,38 +430,48 @@ func (w *watcherInfo) addNewListeners() {
 		w.listeningFor[info.QueueName] = info
 		w.muListeningFor.Unlock()
 
-		go w.processWork(info.QueueName)
+		select {
+		case w.signal <- info.QueueName:
+		default:
+		}
 	}
 }
 
-func (w *watcherInfo) checkWorkBasedOnTimers(checkC chan bool) {
+func (w *watcherInfo) monitorScheduled() {
 	defer er.HandleErrors(func(input *er.HandlerInput) {
 		Logger.Println(input.Error, input.StackTrace)
 	})
 
-	timer := time.NewTimer(time.Second)
+	nextScheduledTimer := time.NewTimer(time.Second)
 	nextPredictedStart := time.Now().Add(time.Second)
 	name := ""
 
 	for {
-		if name != "" {
-			timer.Reset(nextPredictedStart.Sub(time.Now()))
-		} else {
-			timer.Reset(FallbackCheckInterval)
-		}
 
 		select {
-		case <-checkC:
-		case <-timer.C:
+		case <-nextScheduledTimer.C:
 			if name != "" {
 				w.processWork(name)
 			}
+		case name = <-w.signal:
+			w.processWork(name)
+		}
+
+		// drain timer
+		select {
+		case <-nextScheduledTimer.C:
+		default:
 		}
 
 		var ok bool
+		now := time.Now()
+
 		nextPredictedStart, name, ok = w.getPredictedStart()
 		if !ok {
-			nextPredictedStart = time.Now().Add(time.Hour)
+			nextScheduledTimer.Reset(FallbackCheckInterval)
+		} else {
+			dur := nextPredictedStart.Sub(now)
+			nextScheduledTimer.Reset(dur)
 		}
 	}
 }
@@ -497,6 +528,44 @@ func (w *watcherInfo) getPredictedStart() (time.Time, string, bool) {
 	return info.StartAfter.Local(), info.QueueName, true
 }
 
+func (w *watcherInfo) monitorDbNotifications() {
+	for {
+		watchForDbNotification(context.Background(), w.signal)
+
+		// delay re-setting up connection b/c this is either a network or infrastructure issue
+		<-time.After(1 * time.Second)
+	}
+}
+
+func watchForDbNotification(ctx context.Context, signalC chan string) {
+	conn, err := pqshared.Pool.Acquire(ctx)
+	if err != nil {
+		Logger.Println(err)
+		return
+	}
+
+	defer conn.Release()
+
+	_, err = conn.Exec(ctx, `listen pqworkerqueue`)
+	if err != nil {
+		Logger.Println(err)
+		return
+	}
+
+	for {
+		notif, err := conn.Conn().WaitForNotification(ctx)
+		if err != nil {
+			Logger.Println(err)
+			return
+		}
+
+		select {
+		case signalC <- notif.Payload:
+		default:
+		}
+	}
+}
+
 func cleaner() {
 	er.HandleErrors(func(input *er.HandlerInput) {
 		Logger.Println(input.Error, input.StackTrace)
@@ -519,37 +588,6 @@ func cleaner() {
 
 		if err != nil {
 			Logger.Println("failed to cleanup old records", err)
-		}
-	}
-}
-
-func waitForNotification(ctx context.Context, callback func(queueName string), signalC chan bool) {
-	conn, err := pqshared.Pool.Acquire(ctx)
-	if err != nil {
-		Logger.Println(err)
-		return
-	}
-
-	defer conn.Release()
-
-	_, err = conn.Exec(ctx, `listen pqworkerqueue`)
-	if err != nil {
-		Logger.Println(err)
-		return
-	}
-
-	for {
-		notif, err := conn.Conn().WaitForNotification(ctx)
-		if err != nil {
-			Logger.Println(err)
-			return
-		}
-
-		callback(notif.Payload)
-
-		select {
-		case signalC <- true:
-		default:
 		}
 	}
 }
