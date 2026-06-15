@@ -874,44 +874,60 @@ func (q *Queue) add(ctx context.Context, startAfter time.Time, debounceKey strin
 		return obj.ID, err
 	}
 
+	// resultID is the id of the row that actually represents this job afterwards: either the
+	// pre-existing debounced row or the newly-inserted one. We must return that (not uuidId
+	// unconditionally) so callers can poll status/result by the returned id.
+	resultID := ""
+
 	if keepOriginalStart {
-		err = model.ExecContext(ctx, `
+		err = model.GetContext(ctx, &resultID, `
 			with existing as (
-			    select id, job_arg, start_after
-			    from pq_worker_queue
-			    where queue_name = $2 and debounce_key = $6 and $6 != '' and started_at is null
-			    limit 1
-			    for update skip locked
-			)
-			insert into pq_worker_queue (id, queue_name, job_arg, created_at, start_after, debounce_key) 
-			select $1, $2, $3, $4, $5, $6
-			where (select count(*) from existing) = 0
-		`,
-			uuidId.String(), q.name, msg, time.Now().UTC(),
-			startAfter, debounceKey,
-		)
-	} else {
-		err = model.ExecContext(ctx, `
-			with existing as (
-			    select id, job_arg, start_after
+			    select id
 			    from pq_worker_queue
 			    where queue_name = $2 and debounce_key = $6 and $6 != '' and started_at is null
 			    limit 1
 			    for update skip locked
 			), new as (
-			    insert into pq_worker_queue (id, queue_name, job_arg, created_at, start_after, debounce_key) 
+			    insert into pq_worker_queue (id, queue_name, job_arg, created_at, start_after, debounce_key)
 				select $1, $2, $3, $4, $5, $6
 				where (select count(*) from existing) = 0
+				returning id
 			)
-			update pq_worker_queue 
-		    set start_after = $5
-			from existing
-			where existing.id = pq_worker_queue.id
+			select id from existing
+			union all
+			select id from new
+		`,
+			uuidId.String(), q.name, msg, time.Now().UTC(),
+			startAfter, debounceKey,
+		)
+	} else {
+		err = model.GetContext(ctx, &resultID, `
+			with existing as (
+			    select id
+			    from pq_worker_queue
+			    where queue_name = $2 and debounce_key = $6 and $6 != '' and started_at is null
+			    limit 1
+			    for update skip locked
+			), new as (
+			    insert into pq_worker_queue (id, queue_name, job_arg, created_at, start_after, debounce_key)
+				select $1, $2, $3, $4, $5, $6
+				where (select count(*) from existing) = 0
+				returning id
+			), upd as (
+			    update pq_worker_queue
+			    set start_after = $5
+				from existing
+				where existing.id = pq_worker_queue.id
+				returning pq_worker_queue.id
+			)
+			select id from existing
+			union all
+			select id from new
 		`,
 			uuidId.String(), q.name, msg, time.Now().UTC(),
 			startAfter, debounceKey,
 		)
 	}
 
-	return uuidId.String(), err
+	return resultID, err
 }
