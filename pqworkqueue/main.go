@@ -138,10 +138,31 @@ func (w *watcherInfo) processWork(queueName string) {
 		Logger.Println(input.Error, input.StackTrace)
 	})
 
-	mightBeMore := true
+	for {
+		ok, isolationLevel, callback, middleware, retainResultsFor, delayCallback, done := w.startWorkConcurrencyCheck(queueName)
+		if !ok {
+			// either we don't handle this queue or we're at the concurrency limit
+			return
+		}
 
-	for mightBeMore {
-		mightBeMore = w.startWork(queueName)
+		claimed := make(chan bool, 1)
+
+		go func() {
+			defer er.HandleErrors(func(input *er.HandlerInput) {
+				Logger.Println(input.Error, input.StackTrace)
+			})
+			defer done()
+
+			w.startWork(queueName, isolationLevel, callback, middleware, retainResultsFor, delayCallback, claimed)
+		}()
+
+		// Wait only until the job is claimed (a fast DB op), then loop to dispatch the next one.
+		// The job's callback runs asynchronously in the goroutine above, so the scheduler
+		// goroutine that called processWork (notification listener / timer) is never blocked on
+		// job execution. This also lets us actually reach the configured NConcurrent parallelism.
+		if !<-claimed {
+			return
+		}
 	}
 }
 
@@ -217,12 +238,25 @@ func (w *watcherInfo) startWorkConcurrencyCheck(queueName string) (ok bool, isol
 	return
 }
 
-func (w *watcherInfo) startWork(queueName string) (mightBeMore bool) {
+// startWork claims and runs a single job. It is expected to run in its own goroutine (so the
+// callback never blocks the scheduler goroutine). It signals on `claimed` exactly once: true once
+// a job has been claimed (so the caller can dispatch the next one in parallel), or false if no job
+// was available (so the caller stops looping). The claim, callback and result-store all happen in a
+// single outer transaction, so a crash mid-job rolls back `started_at` and the job is retried.
+func (w *watcherInfo) startWork(queueName string, isolationLevel sql.IsolationLevel, callback Worker, middleware []Middleware, retainResultsFor time.Duration, delayCallback DelayForLoadCallback, claimed chan bool) {
 
-	ok, isolationLevel, callback, middleware, retainResultsFor, delayCallback, cancel := w.startWorkConcurrencyCheck(queueName)
-	if !ok {
-		return false
+	claimSignalled := false
+	signalClaimed := func(v bool) {
+		if claimSignalled {
+			return
+		}
+		claimSignalled = true
+		claimed <- v
 	}
+
+	// Ensure the caller is always released. If we claim a job, signalClaimed(true) below makes this
+	// a no-op; otherwise this tells the caller to stop looping.
+	defer signalClaimed(false)
 
 	if delayCallback != nil {
 		count := 0
@@ -244,8 +278,6 @@ func (w *watcherInfo) startWork(queueName string) (mightBeMore bool) {
 		}
 	}
 
-	defer cancel()
-
 	err := model.WithTx(context.Background(), func(ctx context.Context, tx *sqlx.Tx) error {
 
 		id, message, err := getAndClaimJob(ctx, queueName)
@@ -256,6 +288,10 @@ func (w *watcherInfo) startWork(queueName string) (mightBeMore bool) {
 
 			return err
 		}
+
+		// We've claimed a job. Let the scheduler goroutine dispatch the next one in parallel while
+		// we run this job's callback below.
+		signalClaimed(true)
 
 		var result []byte
 		tStart := time.Now()
@@ -308,16 +344,12 @@ func (w *watcherInfo) startWork(queueName string) (mightBeMore bool) {
 		return err
 	})
 
-	if err == sql.ErrNoRows {
-		return false
-	}
-
-	if err != nil {
+	// On a commit failure the outer transaction rolled back, so `started_at` reverted to null and
+	// the job is claimable again. We've already signalled claimed=true, so the caller will loop and
+	// re-dispatch it.
+	if err != nil && errors.Is(err, sql.ErrNoRows) {
 		Logger.Println("failed to commit transaction", err.Error())
-		return true
 	}
-
-	return true
 }
 
 func getDebugStringForMessage(content json.RawMessage) string {
