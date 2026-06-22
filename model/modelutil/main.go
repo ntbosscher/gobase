@@ -12,6 +12,8 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/Masterminds/squirrel"
 	"github.com/lib/pq"
@@ -121,6 +123,11 @@ func (s *stringScanner) Scan(src interface{}) error {
 			break
 		}
 
+		if isSafeString(v) {
+			s.Value = string(v)
+			break
+		}
+
 		s.Value = base64.StdEncoding.EncodeToString(v)
 	case string:
 		s.Value = v
@@ -129,6 +136,29 @@ func (s *stringScanner) Scan(src interface{}) error {
 	}
 
 	return nil
+}
+
+// isSafeString reports whether b can be safely rendered as text rather than
+// base64. It must be valid UTF-8 and contain no control characters other than
+// common whitespace (tab, newline, carriage return). This lets enum and json
+// values render as readable text while binary data (e.g. uuid/bytea) stays
+// base64-encoded.
+func isSafeString(b []byte) bool {
+	if !utf8.Valid(b) {
+		return false
+	}
+
+	for _, r := range string(b) {
+		if r == '\t' || r == '\n' || r == '\r' {
+			continue
+		}
+
+		if !unicode.IsPrint(r) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func containsFieldName(list []string, test string) bool {
