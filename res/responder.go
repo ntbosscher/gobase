@@ -180,6 +180,10 @@ func Download(name string, data io.ReadSeeker) Responder {
 		respond: func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Add("Content-Disposition", "attachment; filename="+SanitizeDispositionName(name)+"")
 			http.ServeContent(w, r, name, time.Now(), data)
+
+			if cl, ok := data.(io.Closer); ok {
+				_ = cl.Close()
+			}
 		},
 	}
 }
@@ -195,6 +199,10 @@ func Display(name string, data io.ReadSeeker) Responder {
 		respond: func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Add("Content-Disposition", "inline; filename="+SanitizeDispositionName(name)+"")
 			http.ServeContent(w, r, name, time.Now(), data)
+
+			if cl, ok := data.(io.Closer); ok {
+				_ = cl.Close()
+			}
 		},
 	}
 }
