@@ -196,7 +196,18 @@ func (p *printerObj) setupBrowser() (playwright.BrowserContext, context.CancelFu
 	}, nil
 }
 
-func (p *printerObj) Print(ctx context.Context, html string) ([]byte, error) {
+type PrintOptInput struct {
+	// optional: HTML content to print
+	HTML string
+
+	// optional: hooks for print process
+	OnSetupContent func(pg playwright.Page)
+
+	// optional: custom render function
+	OnRender func(pg playwright.Page) ([]byte, error)
+}
+
+func (p *printerObj) Print(ctx context.Context, input PrintOptInput) ([]byte, error) {
 
 	bctx, done, err := p.setupBrowser()
 	if err != nil {
@@ -223,15 +234,25 @@ func (p *printerObj) Print(ctx context.Context, html string) ([]byte, error) {
 	default:
 	}
 
-	err = pg.SetContent(html)
-	if err != nil {
-		return nil, errors.New("pdfprinter: could not set content")
+	if input.OnSetupContent != nil {
+		input.OnSetupContent(pg)
+	}
+
+	if input.HTML != "" {
+		err = pg.SetContent(input.HTML)
+		if err != nil {
+			return nil, errors.New("pdfprinter: could not set content")
+		}
 	}
 
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
+	}
+
+	if input.OnRender != nil {
+		return input.OnRender(pg)
 	}
 
 	err = pg.EmulateMedia(playwright.PageEmulateMediaOptions{

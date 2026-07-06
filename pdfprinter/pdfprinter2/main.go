@@ -16,5 +16,11 @@ func init() {
 }
 
 func Print(ctx context.Context, html string) ([]byte, error) {
-	return printer.Print(ctx, html)
+	return printer.Print(ctx, PrintOptInput{
+		HTML: html,
+	})
+}
+
+func PrintOpt(ctx context.Context, opt PrintOptInput) ([]byte, error) {
+	return printer.Print(ctx, opt)
 }
