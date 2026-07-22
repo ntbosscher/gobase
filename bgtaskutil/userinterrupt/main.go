@@ -54,7 +54,7 @@ func IsUserInterrupted(ctx context.Context) bool {
 	if err != nil {
 		cause := context.Cause(ctx)
 
-		if strings.Contains(cause.Error(), ErrUserInterrupted.Error()) {
+		if cause != nil && strings.Contains(cause.Error(), ErrUserInterrupted.Error()) {
 			return true
 		}
 	}

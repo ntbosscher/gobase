@@ -30,7 +30,16 @@ func Run(tasks ...func() error) []error {
 
 func handler(done chan info, index int, tsk func() error) {
 	defer er.HandleErrors(func(input *er.HandlerInput) {
-		done <- info{Index: index, Error: errors.New(input.Error.Error() + " " + input.StackTrace)}
+		// Full details are logged server-side under a correlation id; the
+		// returned error carries only the safe view (no stack trace outside dev
+		// mode). See er.SafeError.
+		correlationID, message, stackTrace := er.SafeError(input)
+		msg := message + " (ref " + correlationID + ")"
+		if stackTrace != "" {
+			msg += " " + stackTrace
+		}
+
+		done <- info{Index: index, Error: errors.New(msg)}
 	})
 
 	err := tsk()

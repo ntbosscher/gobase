@@ -59,9 +59,14 @@ func (q *Queue2[T]) RegisterWorker(concurrent int, callback callbackFx[T], updat
 		NConcurrent: concurrent,
 		Callback: func(ctx context.Context, id string, input json.RawMessage) (out []byte) {
 			defer er.HandleErrors(func(input *er.HandlerInput) {
+				// Full details are logged server-side under a correlation id;
+				// the persisted result (readable via GetResult) carries only the
+				// safe view by default. See er.SafeError.
+				correlationID, message, stackTrace := er.SafeError(input)
 				out, _ = json.Marshal(map[string]interface{}{
-					"error": input.Error,
-					"stack": input.StackTrace,
+					"error":         message,
+					"stack":         stackTrace,
+					"correlationId": correlationID,
 				})
 			})
 

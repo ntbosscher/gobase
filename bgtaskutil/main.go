@@ -2,7 +2,6 @@ package bgtaskutil
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"math/rand"
 	"strings"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/ntbosscher/gobase/bgtaskutil/userinterrupt"
-	"github.com/ntbosscher/gobase/env"
 	"github.com/ntbosscher/gobase/er"
 	"github.com/ntbosscher/gobase/jv"
 	"github.com/ntbosscher/gobase/model"
@@ -148,7 +146,10 @@ func NewUserInterrupt[T any](keyMaker func(input T) string) *UserInterrupter[T] 
 
 func IsUserInterupt(ctx context.Context, reason *er.HandlerInput) bool {
 	// need context check for psql errors
-	if !strings.Contains(reason.Error.Error(), userinterrupt.ErrUserInterrupted.Error()) && !userinterrupt.IsUserInterrupted(ctx) {
+	hasInterruptText := reason != nil && reason.Error != nil &&
+		strings.Contains(reason.Error.Error(), userinterrupt.ErrUserInterrupted.Error())
+
+	if !hasInterruptText && !userinterrupt.IsUserInterrupted(ctx) {
 		return false
 	}
 
@@ -193,13 +194,15 @@ func Interrupt[T any](ctx context.Context, interrupt *UserInterrupter[T], arg T)
 
 func JsonErrorResult(input *er.HandlerInput) []byte {
 
-	if env.IsTesting {
-		fmt.Println(input.Error, input.StackTrace)
-	}
+	// Disclosure policy (log full details server-side under a correlation id,
+	// generic message + empty stack to the consumer by default, full detail in
+	// dev mode) is shared across the framework — see er.SafeError.
+	correlationID, message, stackTrace := er.SafeError(input)
 
 	content, _ := res.GetJSONInstance().Marshal(map[string]interface{}{
-		"error":  input.Error.Error(),
-		"detail": input.StackTrace,
+		"error":         message,
+		"detail":        stackTrace,
+		"correlationId": correlationID,
 	})
 
 	return content
