@@ -299,7 +299,7 @@ func authHandler(config *Config) func(rq *res.Request) (res.Responder, context.C
 			return notAuthenticatedResponder(rq, nil), nil
 		}
 
-		user, err := parseJwt(tokenString)
+		user, err := parseJwt(tokenString, auth.TokenTypeAccess)
 		if err != nil {
 			if config.APITokenChecker != nil {
 				user, err = config.APITokenChecker(rq.Context(), tokenString)
@@ -315,7 +315,7 @@ func authHandler(config *Config) func(rq *res.Request) (res.Responder, context.C
 	}
 }
 
-func parseJwt(tokenString string) (*auth.UserInfo, error) {
+func parseJwt(tokenString string, expected auth.TokenType) (*auth.UserInfo, error) {
 	user := &auth.UserInfo{}
 	token, err := jwt.ParseWithClaims(tokenString, user, func(token *jwt.Token) (interface{}, error) {
 		return jwtKey, nil
@@ -327,6 +327,13 @@ func parseJwt(tokenString string) (*auth.UserInfo, error) {
 
 	if !token.Valid {
 		return nil, errors.New("invalid token")
+	}
+
+	// Enforce that the token was minted for the endpoint using it. Without this
+	// an access token (readable from JS) could be replayed at the refresh
+	// endpoint to mint fresh tokens indefinitely.
+	if user.TokenType != expected {
+		return nil, errors.New("invalid token type")
 	}
 
 	return user, nil
@@ -349,7 +356,7 @@ func refreshHandler(config *Config) res.HandlerFunc2 {
 			return res.BadRequest("Invalid refresh token")
 		}
 
-		claims, err := parseJwt(refreshToken)
+		claims, err := parseJwt(refreshToken, auth.TokenTypeRefresh)
 		if err != nil {
 			return res.AppError("Access denied: " + err.Error())
 		}
@@ -372,6 +379,7 @@ func refreshHandler(config *Config) res.HandlerFunc2 {
 
 		setCookie(rq.Writer(), config.PartitionedCookies, &http.Cookie{
 			Secure:   *config.SecureCookies,
+			HttpOnly: true,
 			Name:     config.getAccessTokenCookieName(),
 			Value:    accessToken,
 			Expires:  accessTokenExpiry,
@@ -427,6 +435,7 @@ func setupSession(rq *res.Request, user *auth.UserInfo, config *Config) (info *S
 
 	setCookie(rq.Writer(), config.PartitionedCookies, &http.Cookie{
 		Secure:   *config.SecureCookies,
+		HttpOnly: true,
 		Name:     config.getAccessTokenCookieName(),
 		Value:    accessToken,
 		Expires:  accessTokenExpiry,
@@ -502,6 +511,7 @@ func createRefreshToken(user *auth.UserInfo, lifetime time.Duration) (token stri
 	}
 
 	user.RegisteredClaims.ExpiresAt = jwt.NewNumericDate(expiry)
+	user.TokenType = auth.TokenTypeRefresh
 
 	tokenObj := jwt.NewWithClaims(jwt.SigningMethodHS256, user)
 	token, err = tokenObj.SignedString(jwtKey)
@@ -520,6 +530,7 @@ func createAccessToken(user *auth.UserInfo, lifetime time.Duration) (token strin
 	}
 
 	user.RegisteredClaims.ExpiresAt = jwt.NewNumericDate(expiry)
+	user.TokenType = auth.TokenTypeAccess
 
 	tokenObj := jwt.NewWithClaims(jwt.SigningMethodHS256, user)
 	token, err = tokenObj.SignedString(jwtKey)

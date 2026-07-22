@@ -11,6 +11,16 @@ import (
 
 type Minutes int
 
+// TokenType distinguishes access tokens from refresh tokens so that a token
+// minted for one purpose cannot be replayed at an endpoint expecting the other
+// (e.g. a stolen access token being POSTed to the refresh endpoint).
+type TokenType string
+
+const (
+	TokenTypeAccess  TokenType = "access"
+	TokenTypeRefresh TokenType = "refresh"
+)
+
 type UserInfo struct {
 	TimeZoneOffset Minutes
 	jwt.RegisteredClaims
@@ -18,6 +28,7 @@ type UserInfo struct {
 	CompanyID int
 	Role      TRole
 	Extra     map[string]interface{}
+	TokenType TokenType `json:"typ,omitempty"`
 }
 
 // TRoles should set only 1 bit to allow for byte wise comparisons
@@ -103,7 +114,8 @@ func SetUser(ctx context.Context, user *UserInfo) context.Context {
 
 // SplitRole expands the possibly combined role into it's individual couter parts
 // e.g RoleInternal = RoleUser | RoleSupervisor
-//     SplitRole(RoleInternal) => [RoleUser, RoleSupervisor]
+//
+//	SplitRole(RoleInternal) => [RoleUser, RoleSupervisor]
 func SplitRole(role TRole) []TRole {
 	list := []TRole{}
 	nBits := int(unsafe.Sizeof(role) * 8)
