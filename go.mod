@@ -2,6 +2,8 @@ module github.com/ntbosscher/gobase
 
 go 1.25.0
 
+toolchain go1.26.5
+
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.12.0
 	github.com/Masterminds/squirrel v1.5.4
