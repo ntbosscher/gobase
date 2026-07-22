@@ -12,6 +12,37 @@ import (
 	"github.com/playwright-community/playwright-go"
 )
 
+// Tunable limits. Override these to change the renderer's resource bounds. All
+// of them are read dynamically — per render, per manager grant decision, or per
+// auto-shutdown tick — so they can be changed at any time, including after the
+// package has been imported/initialized.
+var (
+	// MaxConcurrentRenders caps simultaneous renders sharing the single browser
+	// process; excess Print calls block (cancellable via ctx) until a slot
+	// frees, preventing unbounded page/context growth under load. The manager
+	// reads it on every grant decision, so changes take effect immediately.
+	// Values < 1 are treated as 1.
+	MaxConcurrentRenders = 8
+
+	// RenderTimeout bounds each page operation (SetContent/PDF) so a hostile
+	// page that stalls on a slow subresource can't hang the worker. 0 disables
+	// the timeout (not recommended for untrusted HTML).
+	RenderTimeout = 30 * time.Second
+
+	// RenderSettleDelay lets async content finish painting before the snapshot.
+	RenderSettleDelay = 3 * time.Second
+
+	// MaxHTMLBytes caps caller-supplied HTML size. 0 means no limit.
+	MaxHTMLBytes = 20 * 1024 * 1024
+
+	// InactiveShutdownDelay closes the idle browser after this much inactivity.
+	InactiveShutdownDelay = 5 * time.Minute
+
+	// MaxBrowserLifetime recycles the browser once it is older than this — only
+	// while idle, never mid-render.
+	MaxBrowserLifetime = 30 * time.Minute
+)
+
 type printerObj struct {
 	mu sync.Mutex
 
@@ -19,25 +50,27 @@ type printerObj struct {
 	playwright *playwright.Playwright
 	chrome     playwright.Browser
 
-	activeIncrementC chan bool
-	activeDecrementC chan bool
+	activeIncrementC chan *incrementReq
+	activeDecrementC chan struct{}
+}
+
+type incrementReq struct {
+	OkChan chan bool
 }
 
 func (p *printerObj) Init() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.activeIncrementC = make(chan bool)
-	p.activeDecrementC = make(chan bool)
-	p.setupInstanceUnsafe()
+	p.activeIncrementC = make(chan *incrementReq)
+	p.activeDecrementC = make(chan struct{})
+	_ = p.setupInstanceUnsafe() // ignore error, will come up again later
 
 	go p.autoShutdown()
 }
 
 func (p *printerObj) autoShutdown() {
 	active := 0
-	inactiveDelay := 5 * time.Minute
-	maxActiveTime := 30 * time.Minute
 
 	var inactiveShutdown *time.Time = nil
 	var maxActiveShutdown *time.Time = nil
@@ -47,13 +80,29 @@ func (p *printerObj) autoShutdown() {
 
 	for {
 		select {
-		case _, ok := <-p.activeIncrementC:
+		case incrReq, ok := <-p.activeIncrementC:
 			if !ok {
 				return
 			}
 
+			if active+1 > MaxConcurrentRenders {
+				select {
+				case incrReq.OkChan <- false:
+				default:
+				}
+
+				continue
+			}
+
+			select {
+			case incrReq.OkChan <- true:
+				// fall through, was able to notify caller
+			default:
+				continue
+			}
+
 			if active == 0 {
-				tm := time.Now().Add(maxActiveTime)
+				tm := time.Now().Add(MaxBrowserLifetime)
 				maxActiveShutdown = &tm
 			}
 
@@ -71,7 +120,7 @@ func (p *printerObj) autoShutdown() {
 
 			if active <= 0 {
 				active = 0
-				tm := time.Now().Add(inactiveDelay)
+				tm := time.Now().Add(InactiveShutdownDelay)
 				inactiveShutdown = &tm
 			}
 
@@ -143,8 +192,19 @@ func (p *printerObj) shutdownInstanceUnsafe() {
 	}
 }
 
-func (p *printerObj) setupBrowser() (playwright.BrowserContext, context.CancelFunc, error) {
-	p.activeIncrementC <- true
+func (p *printerObj) setupBrowser(ctx context.Context) (playwright.BrowserContext, context.CancelFunc, error) {
+	okChan := make(chan bool)
+	p.activeIncrementC <- &incrementReq{OkChan: okChan}
+
+	select {
+	case ok := <-okChan:
+		if !ok {
+			return nil, nil, errors.New("pdfprinter: could not acquire browser slot, overloaded per pdfprinter2.MaxConcurrentRenders. callers to .Print() should use a queue and manage concurrency elsewhere")
+		}
+	case <-ctx.Done():
+		return nil, nil, ctx.Err()
+	}
+
 	success := false
 
 	p.mu.Lock()
@@ -152,17 +212,16 @@ func (p *printerObj) setupBrowser() (playwright.BrowserContext, context.CancelFu
 
 	defer func() {
 		if !success {
-			p.activeDecrementC <- true
+			p.activeDecrementC <- struct{}{}
 		}
 	}()
 
-	err := p.setupInstanceUnsafe()
-	if err != nil {
+	if err := p.setupInstanceUnsafe(); err != nil {
 		return nil, nil, err
 	}
 
 	if p.playwright == nil {
-		p.playwright, err = playwright.Run(&playwright.RunOptions{
+		pw, err := playwright.Run(&playwright.RunOptions{
 			Browsers: []string{"chromium"},
 		})
 
@@ -171,10 +230,12 @@ func (p *printerObj) setupBrowser() (playwright.BrowserContext, context.CancelFu
 			p.shutdownInstanceUnsafe()
 			return nil, nil, err
 		}
+
+		p.playwright = pw
 	}
 
 	if p.chrome == nil {
-		p.chrome, err = p.playwright.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
+		ch, err := p.playwright.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
 			Headless: playwright.Bool(true),
 		})
 
@@ -183,6 +244,8 @@ func (p *printerObj) setupBrowser() (playwright.BrowserContext, context.CancelFu
 			p.shutdownInstanceUnsafe()
 			return nil, nil, err
 		}
+
+		p.chrome = ch
 	}
 
 	bctx, err := p.chrome.NewContext()
@@ -195,7 +258,7 @@ func (p *printerObj) setupBrowser() (playwright.BrowserContext, context.CancelFu
 	success = true
 
 	return bctx, func() {
-		p.activeDecrementC <- true
+		p.activeDecrementC <- struct{}{}
 	}, nil
 }
 
@@ -203,10 +266,13 @@ type PrintOptInput struct {
 	// optional: HTML content to print
 	HTML string
 
-	// optional: hooks for print process
+	// optional: hooks for print process. Note the network egress guard is
+	// installed before these run, so any requests they trigger (e.g.
+	// pg.Goto(url)) are also subject to AllowRequestURL / the default SSRF
+	// policy.
 	OnSetupContent func(pg playwright.Page)
 
-	// optional: custom render function
+	// optional: custom render function (see OnSetupContent note re: egress guard)
 	OnRender func(pg playwright.Page) ([]byte, error)
 
 	// AllowRequestURL, if set, is consulted for every network request the page
@@ -224,7 +290,11 @@ type PrintOptInput struct {
 
 func (p *printerObj) Print(ctx context.Context, input PrintOptInput) ([]byte, error) {
 
-	bctx, done, err := p.setupBrowser()
+	if MaxHTMLBytes > 0 && len(input.HTML) > MaxHTMLBytes {
+		return nil, errors.New("pdfprinter: html exceeds max size")
+	}
+
+	bctx, done, err := p.setupBrowser(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -249,27 +319,25 @@ func (p *printerObj) Print(ctx context.Context, input PrintOptInput) ([]byte, er
 		return nil, errors.New("pdfprinter: could not create page")
 	}
 
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
+
+	// Bound every page operation (SetContent/PDF); a stalling page can't hang.
+	pg.SetDefaultTimeout(float64(RenderTimeout.Milliseconds()))
 
 	if input.OnSetupContent != nil {
 		input.OnSetupContent(pg)
 	}
 
 	if input.HTML != "" {
-		err = pg.SetContent(input.HTML)
-		if err != nil {
+		if err = pg.SetContent(input.HTML); err != nil {
 			return nil, errors.New("pdfprinter: could not set content")
 		}
 	}
 
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	if input.OnRender != nil {
@@ -280,8 +348,16 @@ func (p *printerObj) Print(ctx context.Context, input PrintOptInput) ([]byte, er
 		Media: playwright.MediaPrint,
 	})
 
-	// give it a second to render
-	<-time.After(3 * time.Second)
+	if err != nil {
+		Logger.Println("emulate media:", err)
+	}
+
+	// let async content settle, but stay cancellable
+	select {
+	case <-time.After(RenderSettleDelay):
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 
 	return pg.PDF(playwright.PagePdfOptions{
 		Scale: playwright.Float(1),
