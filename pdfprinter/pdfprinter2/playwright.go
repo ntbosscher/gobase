@@ -44,7 +44,8 @@ var (
 )
 
 type printerObj struct {
-	mu sync.Mutex
+	initOnce sync.Once
+	mu       sync.Mutex
 
 	installed  bool
 	playwright *playwright.Playwright
@@ -59,14 +60,15 @@ type incrementReq struct {
 }
 
 func (p *printerObj) Init() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.initOnce.Do(func() {
+		p.mu.Lock()
+		defer p.mu.Unlock()
 
-	p.activeIncrementC = make(chan *incrementReq)
-	p.activeDecrementC = make(chan struct{})
-	_ = p.setupInstanceUnsafe() // ignore error, will come up again later
+		p.activeIncrementC = make(chan *incrementReq)
+		p.activeDecrementC = make(chan struct{})
 
-	go p.autoShutdown()
+		go p.autoShutdown()
+	})
 }
 
 func (p *printerObj) autoShutdown() {
@@ -74,6 +76,8 @@ func (p *printerObj) autoShutdown() {
 
 	var inactiveShutdown *time.Time = nil
 	var maxActiveShutdown *time.Time = nil
+
+	_ = p.setupInstance()
 
 	tc := time.NewTicker(time.Minute)
 	defer tc.Stop()
@@ -86,20 +90,11 @@ func (p *printerObj) autoShutdown() {
 			}
 
 			if active+1 > MaxConcurrentRenders {
-				select {
-				case incrReq.OkChan <- false:
-				default:
-				}
-
+				incrReq.OkChan <- false
 				continue
 			}
 
-			select {
-			case incrReq.OkChan <- true:
-				// fall through, was able to notify caller
-			default:
-				continue
-			}
+			incrReq.OkChan <- true
 
 			if active == 0 {
 				tm := time.Now().Add(MaxBrowserLifetime)
@@ -140,6 +135,10 @@ func (p *printerObj) autoShutdown() {
 			if maxActiveShutdown != nil && time.Now().After(*maxActiveShutdown) {
 				Logger.Println("auto-shutdown: max-active-time: active=", active)
 
+				// Drain in-flight renders to zero before recycling the browser.
+				// While draining we're not in the main select, so new increment
+				// requests block until this completes — a brief, by-design latency
+				// spike (not a render kill: in-flight work finishes first).
 				for active > 0 {
 					select {
 					case <-p.activeDecrementC:
@@ -160,6 +159,13 @@ func (p *printerObj) shutdown() {
 	defer p.mu.Unlock()
 
 	p.shutdownInstanceUnsafe()
+}
+
+func (p *printerObj) setupInstance() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.setupInstanceUnsafe()
 }
 
 func (p *printerObj) setupInstanceUnsafe() error {
@@ -193,16 +199,16 @@ func (p *printerObj) shutdownInstanceUnsafe() {
 }
 
 func (p *printerObj) setupBrowser(ctx context.Context) (playwright.BrowserContext, context.CancelFunc, error) {
-	okChan := make(chan bool)
-	p.activeIncrementC <- &incrementReq{OkChan: okChan}
+	okChan := make(chan bool, 1)
 
 	select {
-	case ok := <-okChan:
-		if !ok {
-			return nil, nil, errors.New("pdfprinter: could not acquire browser slot, overloaded per pdfprinter2.MaxConcurrentRenders. callers to .Print() should use a queue and manage concurrency elsewhere")
-		}
+	case p.activeIncrementC <- &incrementReq{OkChan: okChan}:
 	case <-ctx.Done():
 		return nil, nil, ctx.Err()
+	}
+
+	if !<-okChan {
+		return nil, nil, errors.New("pdfprinter: could not acquire browser slot, overloaded per pdfprinter2.MaxConcurrentRenders. callers to .Print() should use a queue and manage concurrency elsewhere")
 	}
 
 	success := false

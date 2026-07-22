@@ -12,12 +12,11 @@ var printer = &printerObj{}
 
 func init() {
 	Logger = log.New(os.Stdout, "pdfprinter: ", log.Lshortfile)
-	// Start the manager goroutine, which warms up the browser (playwright.Install
-	// + launch) in the background so the first Print is fast. This returns
-	// immediately; the warmup runs off the init path. All tunable limits —
+	// Start the manager goroutine, which runs playwright.Install and launch in the background so the first Print is
+	// faster. This returns immediately; the warmup runs off the init path. All tunable limits —
 	// including MaxConcurrentRenders — are read dynamically by the manager, so
 	// consumers can still override them after import.
-	printer.ensureStarted()
+	printer.Init()
 }
 
 func Print(ctx context.Context, html string) ([]byte, error) {
