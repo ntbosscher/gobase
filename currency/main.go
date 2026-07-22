@@ -5,6 +5,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -104,39 +105,95 @@ func (u *CentsWithJsonEncoding) UnmarshalJSON(data []byte) error {
 }
 
 func Parse(src string) (Cents, error) {
-	sanitized := src
-	sanitized = strings.Trim(sanitized, "$ ")
+	invalid := func() (Cents, error) {
+		return 0, fmt.Errorf("invalid currency format for string '%s'", src)
+	}
+
+	sanitized := strings.Trim(src, "$ ")
 	sanitized = strings.Replace(sanitized, ",", "", -1)
+
+	// Extract a single leading sign for the whole amount, then parse the
+	// magnitude as non-negative.
+	negative := false
+	switch {
+	case strings.HasPrefix(sanitized, "-"):
+		negative = true
+		sanitized = sanitized[1:]
+	case strings.HasPrefix(sanitized, "+"):
+		sanitized = sanitized[1:]
+	}
 
 	parts := strings.Split(sanitized, ".")
 	if len(parts) > 2 {
-		return 0, fmt.Errorf("invalid currency format for string '%s'", src)
+		return invalid()
 	}
 
-	dollars, err := strconv.Atoi(parts[0])
+	// Digits only — rejects an embedded sign (e.g. "2.-5") or any stray
+	// characters that Atoi would otherwise accept.
+	if !isAllDigits(parts[0]) {
+		return invalid()
+	}
+
+	dollars, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil {
-		return 0, fmt.Errorf("invalid currency format for string '%s'", src)
+		return invalid()
 	}
 
-	result := Cents(dollars * 100)
+	// Bound the dollar magnitude before multiplying so the int64 math below
+	// can't overflow (and then silently wrap to a bogus/negative value).
+	const maxDollars = (math.MaxInt64 - 99) / 100
+	if dollars > maxDollars {
+		return 0, fmt.Errorf("currency value out of range for string '%s'", src)
+	}
+
+	total := dollars * 100
 
 	if len(parts) == 2 {
-		if len(parts[1]) > 2 {
-			// warning, truncating trailing cents
-			parts[1] = parts[1][0:2]
+		frac := parts[1]
+		if len(frac) > 2 {
+			// warning, truncating trailing cents beyond 2 decimal places
+			frac = frac[0:2]
 		}
 
-		if len(parts[1]) == 1 {
-			parts[1] = parts[1] + "0"
+		if len(frac) == 1 {
+			frac = frac + "0"
 		}
 
-		cents, err := strconv.Atoi(parts[1])
+		if !isAllDigits(frac) {
+			return invalid()
+		}
+
+		cents, err := strconv.ParseInt(frac, 10, 64)
 		if err != nil {
-			return 0, fmt.Errorf("invalid currency format for string '%s'", src)
+			return invalid()
 		}
 
-		result += Cents(cents)
+		total += cents
 	}
 
-	return result, nil
+	if negative {
+		total = -total
+	}
+
+	// Narrow to the platform-dependent Cents (int) and reject anything that
+	// wouldn't fit rather than wrapping around.
+	if total > math.MaxInt || total < math.MinInt {
+		return 0, fmt.Errorf("currency value out of range for string '%s'", src)
+	}
+
+	return Cents(total), nil
+}
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+
+	return true
 }

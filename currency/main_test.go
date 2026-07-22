@@ -43,6 +43,46 @@ func TestParse(t *testing.T) {
 	}
 }
 
+func TestParseNegative(t *testing.T) {
+	// The sign must apply to the whole amount, not just the dollars.
+	cases := map[string]Cents{
+		"-2.50":  -250,
+		"-0.50":  -50, // regression: previously produced +50 (sign lost)
+		"-2":     -200,
+		"-0.05":  -5,
+		"-1.10":  -110,
+		"+2.50":  250,
+		"$-2.50": -250,
+	}
+
+	for in, want := range cases {
+		got, err := Parse(in)
+		if err != nil {
+			t.Fatalf("Parse(%q) errored: %v", in, err)
+		}
+		if got != want {
+			t.Fatalf("Parse(%q) = %d, want %d", in, got, want)
+		}
+	}
+}
+
+func TestParseRejectsMalformed(t *testing.T) {
+	// Embedded signs, stray characters, and empty parts must be rejected
+	// rather than silently mis-parsed.
+	for _, in := range []string{"2.-5", "2.+5", "2.5x", "abc", "1.2.3", ".", "-.5", "5."} {
+		if got, err := Parse(in); err == nil {
+			t.Fatalf("Parse(%q) = %d, want an error", in, got)
+		}
+	}
+}
+
+func TestParseOutOfRange(t *testing.T) {
+	// A value that would overflow Cents must error, not wrap to a bogus number.
+	if got, err := Parse("99999999999999999999"); err == nil {
+		t.Fatalf("Parse(huge) = %d, want out-of-range error", got)
+	}
+}
+
 func TestCents_UnmarshalJSON(t *testing.T) {
 	var c CentsWithJsonEncoding
 	err := json.Unmarshal([]byte("5.29"), &c)
