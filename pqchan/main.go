@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/ntbosscher/gobase/demux"
 	"github.com/ntbosscher/gobase/er"
@@ -23,7 +24,9 @@ var outputs = map[string]*demux.Demux{}
 var outputNamesChangedC chan bool
 
 func init() {
-	outputNamesChangedC = make(chan bool)
+	// buffered(1) so a name-change signal never blocks the sender (which holds muOutputs).
+	// Multiple changes coalesce into one wake-up; the manager re-reads all names on restart.
+	outputNamesChangedC = make(chan bool, 1)
 
 	go manager()
 }
@@ -51,7 +54,7 @@ func manager() {
 	}
 }
 
-var nameRegexpStr = `^[A-z\_0-9]+$`
+var nameRegexpStr = `^[A-Za-z0-9_]+$`
 var nameValidation = regexp.MustCompile(nameRegexpStr)
 
 func MustSend(ctx context.Context, name string, value interface{}) {
@@ -134,7 +137,8 @@ func setupListens(ctx context.Context, conn *pgxpool.Conn) error {
 	defer muOutputs.RUnlock()
 
 	for name, _ := range outputs {
-		if _, err := conn.Exec(ctx, `listen `+channelPrefix+name); err != nil {
+		channel := pgx.Identifier{channelPrefix + name}.Sanitize()
+		if _, err := conn.Exec(ctx, `listen `+channel); err != nil {
 			if ctx.Err() == context.Canceled {
 				return ctx.Err()
 			}
@@ -159,7 +163,12 @@ func getMuxForName(name string) *demux.Demux {
 		}
 
 		outputs[name] = mux
-		outputNamesChangedC <- true
+
+		// non-blocking: won't wedge under muOutputs even if the manager is mid-restart
+		select {
+		case outputNamesChangedC <- true:
+		default:
+		}
 	}
 
 	return mux
