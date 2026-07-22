@@ -132,12 +132,7 @@ func (f *funcServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func WrapHTTPFunc(handler HandlerFunc2) http.HandlerFunc {
 	return func(wr http.ResponseWriter, req *http.Request) {
 		defer er.HandleErrors(func(input *er.HandlerInput) {
-			res := &responder{
-				status: input.SuggestedHttpCode,
-				data:   errorData(input.Message, input.StackTrace, "", input.Details),
-			}
-
-			res.Respond(wr, req)
+			handlePanic(input).Respond(wr, req)
 		})
 
 		res := handler(NewRequest(wr, req))
@@ -147,12 +142,7 @@ func WrapHTTPFunc(handler HandlerFunc2) http.HandlerFunc {
 
 func AutoHandleHttpPanics(wr http.ResponseWriter, req *http.Request) {
 	er.HandleErrors(func(input *er.HandlerInput) {
-		res := &responder{
-			status: input.SuggestedHttpCode,
-			data:   errorData(input.Message, input.StackTrace, "", nil),
-		}
-
-		res.Respond(wr, req)
+		handlePanic(input).Respond(wr, req)
 	})
 }
 
