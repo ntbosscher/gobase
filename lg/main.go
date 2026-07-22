@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -107,7 +106,7 @@ func NewContext(ctx context.Context, opts ...Option) context.Context {
 func OptWithRequest(req *http.Request) Option {
 	return func(s *LogSender) {
 		s.startMeta["req:method"] = req.Method
-		s.startMeta["req:url"] = req.URL.String()
+		s.startMeta["req:url"] = req.URL.String() // include all the details
 	}
 }
 
@@ -262,16 +261,26 @@ func write(input *message) {
 		parent = input.sender.parent
 	}
 
-	row := fmt.Sprintf(`{"d":"%s","t":"%s","s":%s,"e":%s,"f":"%s","pr":"%s"}`,
-		input.when.Format("2006-01-02T15:04:05"),
-		senderKey,
-		string(toJson(string(input.str))),
-		string(toJson(input.extra)),
-		input.caller,
-		parent)
+	// Marshal the whole row so every field (parent, caller, key, message, extra) is
+	// properly JSON-escaped.
+	row := toJson(struct {
+		D  string         `json:"d"`
+		T  string         `json:"t"`
+		S  string         `json:"s"`
+		E  map[string]any `json:"e"`
+		F  string         `json:"f"`
+		Pr string         `json:"pr"`
+	}{
+		D:  input.when.Format("2006-01-02T15:04:05"),
+		T:  senderKey,
+		S:  string(input.str),
+		E:  input.extra,
+		F:  input.caller,
+		Pr: parent,
+	})
 
-	row = row + "\n"
-	_, err := io.Copy(os.Stdout, strings.NewReader(row))
+	row = append(row, '\n')
+	_, err := io.Copy(os.Stdout, bytes.NewReader(row))
 	if err != nil {
 		log.Println("lg: write error:", err)
 	}
