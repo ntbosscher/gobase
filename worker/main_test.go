@@ -34,6 +34,33 @@ func TestWorker(t *testing.T) {
 	}
 }
 
+func TestStopIsSafe(t *testing.T) {
+	w := New("test", func(ctx context.Context, input int) error { return nil }, 0)
+
+	// Previously these panicked with "send on closed channel" / "close of
+	// closed channel". They must now be no-ops.
+	w.Stop()
+	w.Stop() // double stop
+	w.Trigger()
+	w.TriggerWithInput(context.Background(), 1)
+}
+
+func TestStopConcurrentWithTrigger(t *testing.T) {
+	w := New("test", func(ctx context.Context, input int) error { return nil }, 0)
+
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 1000; i++ {
+			w.Trigger()
+			w.TriggerWithInput(context.Background(), i)
+		}
+		close(done)
+	}()
+
+	w.Stop()
+	<-done // must complete without a panic taking down the process
+}
+
 func TestInterval(t *testing.T) {
 	var signal = make(chan int)
 	New("test", func(ctx context.Context, input int) error {

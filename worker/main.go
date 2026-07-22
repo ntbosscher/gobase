@@ -8,6 +8,7 @@ import (
 	"github.com/ntbosscher/gobase/er"
 	"log"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -22,9 +23,11 @@ type Exec = func(ctx context.Context, input int) error
 type Middleware = func(next Exec) Exec
 
 type Worker struct {
-	name   string
-	exec   Exec
-	signal chan int
+	name     string
+	exec     Exec
+	signal   chan int
+	done     chan struct{}
+	stopOnce sync.Once
 }
 
 // New creates a new worker and starts the worker loop
@@ -34,6 +37,7 @@ func New(name string, exec Exec, checkInterval time.Duration, middleware ...Midd
 		name:   name,
 		exec:   exec,
 		signal: make(chan int, 10),
+		done:   make(chan struct{}),
 	}
 
 	go w.loop(checkInterval, middleware)
@@ -73,11 +77,9 @@ func (w *Worker) loop(checkInterval time.Duration, middleware []Middleware) {
 		value := 0
 
 		select {
-		case input, ok := <-w.signal:
-			if !ok {
-				return
-			}
-			value = input
+		case <-w.done:
+			return
+		case value = <-w.signal:
 		case <-timer:
 			value = 0
 		}
@@ -85,30 +87,44 @@ func (w *Worker) loop(checkInterval time.Duration, middleware []Middleware) {
 		err := run(ctx, value)
 		if err != nil {
 			Logger.Println("worker "+w.name, err.Error())
-			<-time.After(10 * time.Second)
+
+			// Back off after an error, but stay responsive to Stop() so
+			// shutdown isn't delayed up to 10s.
+			select {
+			case <-time.After(10 * time.Second):
+			case <-w.done:
+				return
+			}
 		}
 	}
 }
 
+// Stop signals the worker loop to exit. It is safe to call multiple times and
+// concurrently with Trigger/TriggerWithInput.
 func (w *Worker) Stop() {
-	close(w.signal)
+	w.stopOnce.Do(func() {
+		close(w.done)
+	})
 }
 
 // Trigger executes the job with input=0
-// If the queue is full, this does nothing
+// If the queue is full or the worker has stopped, this does nothing
 func (w *Worker) Trigger() {
 	select {
 	case w.signal <- 0:
+	case <-w.done:
 	default:
 	}
 }
 
 // TriggerWithInput executes the job with the given input
 // ctx is used to deal with timeouts if the queue is backed up
+// Returns immediately (without enqueuing) if the worker has stopped.
 func (w *Worker) TriggerWithInput(ctx context.Context, input int) {
 	select {
 	case w.signal <- input:
 	case <-ctx.Done():
+	case <-w.done:
 	}
 }
 
