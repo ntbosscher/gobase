@@ -275,16 +275,20 @@ func processResults(list interface{}, processor resultProcessor) {
 func applyPager(query squirrel.SelectBuilder, cfg *queryConfig) squirrel.SelectBuilder {
 
 	pageSize := cfg.pageSize
+	if pageSize <= 0 {
+		pageSize = DefaultPageSize
+	}
 
 	if pageSize > MaxPageSize {
 		pageSize = MaxPageSize
 	}
 
-	if pageSize == 0 {
-		pageSize = DefaultPageSize
+	page := cfg.page
+	if page < 0 {
+		page = 0
 	}
 
-	return query.Limit(uint64(pageSize)).Offset(uint64(cfg.page * pageSize))
+	return query.Limit(uint64(pageSize)).Offset(uint64(page * pageSize))
 }
 
 func applyOrderBy(query squirrel.SelectBuilder, cfg *queryConfig) squirrel.SelectBuilder {
