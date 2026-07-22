@@ -3,6 +3,9 @@ package pdfprinter2
 import (
 	"context"
 	"errors"
+	"net"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -205,6 +208,18 @@ type PrintOptInput struct {
 
 	// optional: custom render function
 	OnRender func(pg playwright.Page) ([]byte, error)
+
+	// AllowRequestURL, if set, is consulted for every network request the page
+	// attempts; returning false aborts that request. Use it to allow-list
+	// specific hosts, or to lock the renderer down completely
+	// (func(string) bool { return false }).
+	//
+	// When nil, the default SSRF guard applies: data:/blob:/about: are allowed,
+	// and http(s) requests are blocked when the host resolves to a
+	// loopback/private/link-local address (e.g. cloud-metadata 169.254.169.254
+	// or RFC1918 internal services). Public http(s) is permitted so remote
+	// images/fonts/styles still load.
+	AllowRequestURL func(rawURL string) bool
 }
 
 func (p *printerObj) Print(ctx context.Context, input PrintOptInput) ([]byte, error) {
@@ -216,6 +231,12 @@ func (p *printerObj) Print(ctx context.Context, input PrintOptInput) ([]byte, er
 
 	defer done()
 	defer bctx.Close()
+
+	// Install the network egress guard before any page is created so no
+	// subresource/script request can escape it (SSRF protection).
+	if err := applyNetworkGuard(bctx, input.AllowRequestURL); err != nil {
+		return nil, err
+	}
 
 	select {
 	case <-ctx.Done():
@@ -265,4 +286,103 @@ func (p *printerObj) Print(ctx context.Context, input PrintOptInput) ([]byte, er
 	return pg.PDF(playwright.PagePdfOptions{
 		Scale: playwright.Float(1),
 	})
+}
+
+// applyNetworkGuard intercepts every request the page makes and aborts the ones
+// the policy rejects. This is the SSRF control for untrusted HTML rendering.
+func applyNetworkGuard(bctx playwright.BrowserContext, allow func(rawURL string) bool) error {
+	if allow == nil {
+		allow = defaultAllowRequestURL
+	}
+
+	return bctx.Route("**/*", func(route playwright.Route) {
+		rawURL := route.Request().URL()
+
+		if allow(rawURL) {
+			_ = route.Continue()
+			return
+		}
+
+		Logger.Println("blocked request (ssrf guard):", redactURL(rawURL))
+		_ = route.Abort()
+	})
+}
+
+// defaultAllowRequestURL permits inlined/in-memory schemes and public http(s),
+// and blocks http(s) to loopback/private/link-local hosts. It fails closed on
+// anything it can't parse or resolve.
+func defaultAllowRequestURL(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+
+	switch strings.ToLower(u.Scheme) {
+	case "data", "blob", "about":
+		// Inlined or in-memory content — no network egress.
+		return true
+	case "http", "https":
+		// checked below
+	default:
+		// file, ftp, ws(s), chrome, and any unknown scheme: block.
+		return false
+	}
+
+	host := u.Hostname()
+	if host == "" {
+		return false
+	}
+
+	return !hostResolvesToBlockedIP(host)
+}
+
+func hostResolvesToBlockedIP(host string) bool {
+	if ip := net.ParseIP(host); ip != nil {
+		return isBlockedIP(ip)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+	if err != nil {
+		return true // fail closed
+	}
+
+	for _, ip := range ips {
+		if isBlockedIP(ip) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isBlockedIP(ip net.IP) bool {
+	// IsPrivate covers RFC1918 + fc00::/7 (ULA); IsLinkLocalUnicast covers
+	// 169.254.0.0/16 (incl. the cloud-metadata address) + fe80::/10.
+	if ip.IsLoopback() || ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsInterfaceLocalMulticast() || ip.IsMulticast() ||
+		ip.IsUnspecified() {
+		return true
+	}
+
+	// Carrier-grade NAT 100.64.0.0/10 is not covered by IsPrivate.
+	if ip4 := ip.To4(); ip4 != nil && ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
+		return true
+	}
+
+	return false
+}
+
+// redactURL strips the query/fragment so a blocked-request log line can't leak
+// tokens carried in the URL.
+func redactURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "(unparseable url)"
+	}
+
+	return u.Scheme + "://" + u.Host + u.Path
 }
