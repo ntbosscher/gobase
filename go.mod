@@ -31,7 +31,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/playwright-community/playwright-go v0.5700.1
 	golang.org/x/image v0.41.0
-	golang.org/x/sys v0.38.0
+	golang.org/x/sys v0.45.0
 )
 
 replace github.com/ntbosscher/sqlx v1.4.0 => github.com/ntbosscher/sqlx v1.4.0
@@ -69,8 +69,8 @@ require (
 	github.com/mailgun/errors v0.4.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421 // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
-	golang.org/x/net v0.47.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/oauth2 v0.27.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/sync v0.21.0 // indirect
+	golang.org/x/text v0.39.0 // indirect
 )
