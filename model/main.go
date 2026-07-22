@@ -11,7 +11,7 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	_ "github.com/jackc/pgx/v4"
+	_ "github.com/jackc/pgx/v5"
 	"github.com/jmoiron/sqlx"
 	"github.com/ntbosscher/gobase/env"
 )

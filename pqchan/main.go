@@ -6,7 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/ntbosscher/gobase/demux"
 	"github.com/ntbosscher/gobase/er"
 	"github.com/ntbosscher/gobase/pqshared"
