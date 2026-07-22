@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/rand"
-	"io/ioutil"
 	"log"
 	"os"
 )
@@ -22,7 +21,13 @@ func main() {
 
 	file := "./.jwtkey"
 
-	if err := ioutil.WriteFile(file, buf, os.ModePerm); err != nil {
+	if err := os.WriteFile(file, buf, 0o600); err != nil {
+		log.Fatal(err)
+	}
+
+	// WriteFile only applies the mode when creating the file; chmod ensures the
+	// key is tightened even if it already existed with looser permissions.
+	if err := os.Chmod(file, 0o600); err != nil {
 		log.Fatal(err)
 	}
 
