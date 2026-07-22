@@ -95,6 +95,10 @@ func Retry[T any](ctx context.Context, job T, queue *pqworkqueue.Queue2[T], dela
 }
 
 func RetryPQLockingErrors[T any](reason *er.HandlerInput, job T, queue *pqworkqueue.Queue2[T]) bool {
+	if reason == nil || reason.Error == nil {
+		return false
+	}
+
 	phrases := []string{
 		"could not serialize access due to concurrent update",
 		"deadlock detected",
