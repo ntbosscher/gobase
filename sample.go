@@ -64,7 +64,9 @@ func main() {
 	rt.Use(model.AttachTxHandler("/websocket"))
 
 	// make requestip.IP() available
-	rt.Use(requestip.Middleware())
+	// NoProxies: this demo is exposed directly; behind a proxy use
+	// requestip.TrustProxies(...) / TrustProxyHops(...) instead.
+	rt.Use(requestip.Middleware(requestip.NoProxies()))
 
 	// setup auth
 	rt.WithAuth(httpauth.Config{
