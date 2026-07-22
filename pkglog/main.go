@@ -25,7 +25,7 @@ func defaults() (Level, io.Writer, int) {
 		DefaultOutput = os.Stderr
 	default:
 		var err error
-		DefaultOutput, err = os.OpenFile(defaultLogOutput, os.O_RDWR|os.O_CREATE, os.ModePerm)
+		DefaultOutput, err = os.OpenFile(defaultLogOutput, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 		if err != nil {
 			panic("unable to open log file '" + defaultLogOutput + "' (parsed from env DEFAULT_LOG_OUTPUT): " + err.Error())
 		}
