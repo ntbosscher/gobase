@@ -6,14 +6,21 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"testing"
 )
 
 var IsTesting bool
+
+// IsUnitTest is true only when the binary is a test binary built by `go test`.
+// It is derived from testing.Testing() (a linker-injected flag), NOT from a runtime
+// env var, so a production binary can never be tricked into test-mode by setting an
+// environment variable — which previously let Require* return zero-values and start
+// an app with empty security config.
 var IsUnitTest bool
 
 func init() {
 
-	IsUnitTest = os.Getenv("UNIT_TEST") != ""
+	IsUnitTest = testing.Testing()
 
 	searches := autoEnvLocation()
 	if os.Getenv("ENV_FILE") != "" {
@@ -27,8 +34,7 @@ func init() {
 			log.Println("Error loading .env file: ", err.Error())
 		} else {
 			log.Println("Error loading .env file: ", err.Error())
-			log.Println("If this is a unit test, try passing the UNIT_TEST=true environment variable to bi-pass this")
-			log.Fatal()
+			log.Fatal("unable to load .env file")
 		}
 	}
 
@@ -79,7 +85,7 @@ func Require(key string) string {
 func RequireInt(key string) int {
 	i, err := strconv.Atoi(Require(key))
 	if err != nil {
-		fatal("invalid environment variable value '" + Require(key) + "' for key " + key)
+		fatal("invalid (non-integer) environment variable value for key " + key)
 	}
 
 	return i
@@ -88,7 +94,7 @@ func RequireInt(key string) int {
 func RequireBool(key string) bool {
 	i, err := strconv.ParseBool(Require(key))
 	if err != nil {
-		fatal("invalid environment variable value '" + Require(key) + "' for key " + key)
+		fatal("invalid (non-boolean) environment variable value for key " + key)
 	}
 
 	return i
@@ -111,7 +117,7 @@ func OptionalBool(key string, defaultValue bool) bool {
 
 	i, err := strconv.ParseBool(v)
 	if err != nil {
-		fatal("invalid environment variable value '" + v + "' for key " + key + " should be true,false or undefined")
+		fatal("invalid environment variable value for key " + key + ", should be true, false or undefined")
 	}
 
 	return i
@@ -125,7 +131,7 @@ func OptionalInt(key string, defaultValue int) int {
 
 	i, err := strconv.Atoi(v)
 	if err != nil {
-		fatal("invalid environment variable value '" + v + "' for key " + key + " should be a number or undefined")
+		fatal("invalid environment variable value for key " + key + ", should be a number or undefined")
 	}
 
 	return i
