@@ -20,14 +20,15 @@ func SignAndSetHeader(rq *http.Request, secret string, body []byte) error {
 	return err
 }
 
-func calcSignature(secret string, body []byte) (string, error) {
+func hmacSum(secret string, body []byte) []byte {
 	hasher := hmac.New(sha256.New, []byte(secret))
+	// hash.Hash.Write never returns an error, so it's safe to ignore.
+	hasher.Write(body)
+	return hasher.Sum(nil)
+}
 
-	if _, err := hasher.Write(body); err != nil {
-		return "", err
-	}
-
-	return hex.EncodeToString(hasher.Sum(nil)), nil
+func calcSignature(secret string, body []byte) (string, error) {
+	return hex.EncodeToString(hmacSum(secret, body)), nil
 }
 
 func Verify(secret string, r *http.Request) ([]byte, error) {
@@ -40,12 +41,14 @@ func Verify(secret string, r *http.Request) ([]byte, error) {
 		return nil, err
 	}
 
-	value, err := calcSignature(secret, body)
-	if err != nil {
-		return nil, err
-	}
-
-	if value != sig {
+	// Decode the client-supplied signature to raw bytes and compare with a
+	// constant-time HMAC check. A plain `!=` on the hex strings leaks timing
+	// that lets an attacker recover a valid signature byte-by-byte, and this
+	// signature gates a code-execution/deploy path — so it must be constant
+	// time. hmac.Equal also handles length mismatches safely.
+	expected := hmacSum(secret, body)
+	got, err := hex.DecodeString(sig)
+	if err != nil || !hmac.Equal(got, expected) {
 		return nil, errors.New("invalid hash")
 	}
 
