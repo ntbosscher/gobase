@@ -6,12 +6,22 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 
 	"golang.org/x/sys/unix"
 )
+
+// MaxFileSize caps the uncompressed size of any single entry written into the zip.
+// Set to 0 to disable the per-file cap.
+var MaxFileSize int64 = 2 * GB
+
+// MaxTotalSize caps the total uncompressed size across all entries in the zip.
+// Set to 0 to disable the total cap.
+var MaxTotalSize int64 = 10 * GB
 
 type Zip struct {
 	wr      *zip.Writer
@@ -20,6 +30,8 @@ type Zip struct {
 	mu      *sync.Mutex
 
 	remoteQueue []downloadItem
+
+	totalWritten int64
 
 	err error
 }
@@ -33,18 +45,18 @@ func NewZip() *Zip {
 const GB = 1024 * 1024 * 1024
 const MB = 1024 * 1024
 
+// checkDiskSpace returns an error (rather than mutating z.err) so it's safe to call
+// from the Run loop without holding z.mu; the caller decides whether/how to record it.
 func (z *Zip) checkDiskSpace() error {
 	if runtime.GOOS == "linux" {
 		var stat unix.Statfs_t
 		wd, err := os.Getwd()
 		if err != nil {
-			z.err = err
 			return err
 		}
 
-		z.err = unix.Statfs(wd, &stat)
-		if z.err != nil {
-			return z.err
+		if err := unix.Statfs(wd, &stat); err != nil {
+			return err
 		}
 
 		if stat.Bavail*uint64(stat.Bsize) < 1*GB {
@@ -341,6 +353,9 @@ type DownloadFunc func(ctx context.Context, writer io.WriterAt) error
 // AddRemoteFile queues a remote file to be downloaded and added to the zip file
 // download must be able to be called from any goroutine
 func (z *Zip) AddRemoteFile(name string, download DownloadFunc) error {
+	z.mu.Lock()
+	defer z.mu.Unlock()
+
 	if z.err != nil {
 		return z.err
 	}
@@ -357,28 +372,28 @@ func (z *Zip) addFileFromWriterSync(name string, data io.Reader) error {
 	z.mu.Lock()
 	defer z.mu.Unlock()
 
-	// if we've already errored, don't continue
-	if z.err != nil {
-		return z.err
-	}
-
-	if z.err = z.initInternalsUnsafe(); z.err != nil {
-		return z.err
-	}
-
-	w, err := z.wr.Create(name)
-	if err != nil {
-		z.err = err
-		return z.err
-	}
-
-	_, z.err = io.Copy(w, data)
-	return z.err
+	return z.addFileUnsafe(name, data)
 }
 
 func (z *Zip) AddMemoryFile(name string, data io.Reader) error {
+	// hold the lock: this mutates z.wr/z.err/z.totalWritten, which the download
+	// workers also touch — reading/writing them without the lock is a data race.
+	z.mu.Lock()
+	defer z.mu.Unlock()
+
+	return z.addFileUnsafe(name, data)
+}
+
+// addFileUnsafe writes one entry. Callers must hold z.mu.
+func (z *Zip) addFileUnsafe(name string, data io.Reader) error {
 	// if we've already errored, don't continue
 	if z.err != nil {
+		return z.err
+	}
+
+	cleanName, err := sanitizeZipName(name)
+	if err != nil {
+		z.err = err
 		return z.err
 	}
 
@@ -386,12 +401,69 @@ func (z *Zip) AddMemoryFile(name string, data io.Reader) error {
 		return z.err
 	}
 
-	w, err := z.wr.Create(name)
+	w, err := z.wr.Create(cleanName)
 	if err != nil {
 		z.err = err
 		return z.err
 	}
 
-	_, z.err = io.Copy(w, data)
+	z.err = z.copyWithLimitUnsafe(w, data)
 	return z.err
+}
+
+// copyWithLimitUnsafe copies data into w, enforcing MaxFileSize and MaxTotalSize.
+// Callers must hold z.mu.
+func (z *Zip) copyWithLimitUnsafe(w io.Writer, data io.Reader) error {
+	remaining := int64(-1) // -1 == unlimited
+
+	if MaxFileSize > 0 {
+		remaining = MaxFileSize
+	}
+
+	if MaxTotalSize > 0 {
+		totalRemaining := MaxTotalSize - z.totalWritten
+		if totalRemaining < 0 {
+			totalRemaining = 0
+		}
+
+		if remaining < 0 || totalRemaining < remaining {
+			remaining = totalRemaining
+		}
+	}
+
+	if remaining < 0 {
+		written, err := io.Copy(w, data)
+		z.totalWritten += written
+		return err
+	}
+
+	// copy remaining+1 so we can detect an over-cap file
+	written, err := io.Copy(w, io.LimitReader(data, remaining+1))
+	z.totalWritten += written
+	if err != nil {
+		return err
+	}
+
+	if written > remaining {
+		return errors.New("remotezip: entry exceeds configured size cap (MaxFileSize/MaxTotalSize)")
+	}
+
+	return nil
+}
+
+// sanitizeZipName normalizes an entry name to a safe, archive-relative path so the
+// writer can't emit zip-slip payloads (e.g. "../../etc/passwd") that a naive extractor
+// would write outside the destination directory.
+func sanitizeZipName(name string) (string, error) {
+	name = strings.ReplaceAll(name, `\`, "/")
+
+	// prefix "/" then Clean so any leading "../" that would escape the root collapses away
+	name = path.Clean("/" + name)
+	name = strings.TrimPrefix(name, "/")
+
+	if name == "" || name == "." {
+		return "", errors.New("remotezip: invalid (empty) entry name")
+	}
+
+	return name, nil
 }
