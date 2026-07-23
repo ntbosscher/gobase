@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ntbosscher/gobase/pdfprinter/pdfprinter2/ssrfproxy"
 	"github.com/playwright-community/playwright-go"
 )
 
@@ -41,6 +42,24 @@ var (
 	// MaxBrowserLifetime recycles the browser once it is older than this — only
 	// while idle, never mid-render.
 	MaxBrowserLifetime = 30 * time.Minute
+
+	// EgressProxyEnabled controls whether the browser's http/https egress is
+	// forced through the built-in ssrfproxy (resolve-once-and-pin). That proxy
+	// is the authoritative SSRF / DNS-rebinding control for untrusted HTML;
+	// disabling it leaves only the Route guard, whose IP check resolves DNS
+	// separately and is therefore rebindable. Leave this on for untrusted HTML.
+	//
+	// Read when a browser is launched, so a change takes effect on the next
+	// (re)launch, not mid-lifetime. Recycle the browser (e.g. lower
+	// MaxBrowserLifetime, or let it go idle) to apply a change promptly.
+	EgressProxyEnabled = true
+
+	// EgressProxyOptions configures the built-in proxy when EgressProxyEnabled
+	// is true: a custom IsBlockedIP policy (e.g. to also block extra ranges, or
+	// to allow-list an internal host), a custom Resolver, or a dial timeout. Its
+	// Logger defaults to this package's Logger when unset. Read at browser
+	// launch.
+	EgressProxyOptions ssrfproxy.Options
 )
 
 type printerObj struct {
@@ -50,6 +69,7 @@ type printerObj struct {
 	installed  bool
 	playwright *playwright.Playwright
 	chrome     playwright.Browser
+	proxy      *ssrfproxy.Proxy
 
 	activeIncrementC chan *incrementReq
 	activeDecrementC chan struct{}
@@ -192,6 +212,11 @@ func (p *printerObj) shutdownInstanceUnsafe() {
 		p.chrome = nil
 	}
 
+	if p.proxy != nil {
+		p.proxy.Close()
+		p.proxy = nil
+	}
+
 	if p.playwright != nil {
 		p.playwright.Stop()
 		p.playwright = nil
@@ -241,10 +266,45 @@ func (p *printerObj) setupBrowser(ctx context.Context) (playwright.BrowserContex
 	}
 
 	if p.chrome == nil {
-		ch, err := p.playwright.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
+		launchOpts := playwright.BrowserTypeLaunchOptions{
 			Headless: playwright.Bool(true),
-		})
+		}
 
+		if EgressProxyEnabled {
+			// Start the SSRF-safe egress proxy and route all browser http/https
+			// traffic through it. The proxy resolves-once-and-pins, which is
+			// what actually defeats DNS rebinding — Chromium delegates name
+			// resolution to the proxy when a proxy is set, so there is no second
+			// lookup to rebind.
+			opts := EgressProxyOptions
+			if opts.Logger == nil {
+				opts.Logger = Logger
+			}
+
+			proxy, err := ssrfproxy.Start(opts)
+			if err != nil {
+				Logger.Println(err)
+				p.shutdownInstanceUnsafe()
+				return nil, nil, err
+			}
+			p.proxy = proxy
+
+			launchOpts.Proxy = &playwright.Proxy{Server: proxy.URL()}
+			launchOpts.Args = append(launchOpts.Args,
+				// Force loopback through the proxy too. Chromium bypasses the
+				// proxy for localhost/127.0.0.1 by default; "<-loopback>"
+				// removes that implicit bypass so 127.0.0.1 SSRF can't skip it.
+				"--proxy-bypass-list=<-loopback>",
+				// Keep WebRTC from opening direct (non-proxied) UDP sockets that
+				// would sidestep the proxy and could reach internal IPs.
+				"--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+				// Prefer TCP+CONNECT for TLS; avoids any UDP/QUIC path around
+				// the proxy.
+				"--disable-quic",
+			)
+		}
+
+		ch, err := p.playwright.Chromium.Launch(launchOpts)
 		if err != nil {
 			Logger.Println(err)
 			p.shutdownInstanceUnsafe()
@@ -286,11 +346,16 @@ type PrintOptInput struct {
 	// specific hosts, or to lock the renderer down completely
 	// (func(string) bool { return false }).
 	//
-	// When nil, the default SSRF guard applies: data:/blob:/about: are allowed,
-	// and http(s) requests are blocked when the host resolves to a
+	// When nil, the default guard applies: data:/blob:/about: are allowed, and
+	// http(s) requests are blocked when the host resolves to a
 	// loopback/private/link-local address (e.g. cloud-metadata 169.254.169.254
 	// or RFC1918 internal services). Public http(s) is permitted so remote
 	// images/fonts/styles still load.
+	//
+	// This hook is a per-request allow-list / scheme filter layered on top of
+	// the always-on ssrfproxy egress proxy (which is the authoritative,
+	// rebinding-proof control). Blocking private ranges does not depend on this
+	// hook — the proxy pins the resolved IP regardless.
 	AllowRequestURL func(rawURL string) bool
 }
 
@@ -371,7 +436,14 @@ func (p *printerObj) Print(ctx context.Context, input PrintOptInput) ([]byte, er
 }
 
 // applyNetworkGuard intercepts every request the page makes and aborts the ones
-// the policy rejects. This is the SSRF control for untrusted HTML rendering.
+// the policy rejects. It enforces scheme policy and the caller's
+// AllowRequestURL allow-list, and does a best-effort private-IP check.
+//
+// Note: the authoritative SSRF boundary is the ssrfproxy egress proxy the
+// browser is launched with (resolve-once-and-pin), which is what actually
+// defeats DNS rebinding. This Route guard is defense-in-depth and host
+// allow-listing: its own IP check resolves DNS separately and is therefore
+// rebindable, so it must not be relied on as the sole control.
 func applyNetworkGuard(bctx playwright.BrowserContext, allow func(rawURL string) bool) error {
 	if allow == nil {
 		allow = defaultAllowRequestURL
@@ -420,7 +492,7 @@ func defaultAllowRequestURL(rawURL string) bool {
 
 func hostResolvesToBlockedIP(host string) bool {
 	if ip := net.ParseIP(host); ip != nil {
-		return isBlockedIP(ip)
+		return ssrfproxy.IsBlockedIP(ip)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -432,27 +504,9 @@ func hostResolvesToBlockedIP(host string) bool {
 	}
 
 	for _, ip := range ips {
-		if isBlockedIP(ip) {
+		if ssrfproxy.IsBlockedIP(ip) {
 			return true
 		}
-	}
-
-	return false
-}
-
-func isBlockedIP(ip net.IP) bool {
-	// IsPrivate covers RFC1918 + fc00::/7 (ULA); IsLinkLocalUnicast covers
-	// 169.254.0.0/16 (incl. the cloud-metadata address) + fe80::/10.
-	if ip.IsLoopback() || ip.IsPrivate() ||
-		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsInterfaceLocalMulticast() || ip.IsMulticast() ||
-		ip.IsUnspecified() {
-		return true
-	}
-
-	// Carrier-grade NAT 100.64.0.0/10 is not covered by IsPrivate.
-	if ip4 := ip.To4(); ip4 != nil && ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
-		return true
 	}
 
 	return false
