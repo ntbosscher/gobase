@@ -27,9 +27,16 @@ func (v *Ver) String() string {
 	return v.Value
 }
 
+// maxVersionParts caps how many dotted segments NewVer will parse, so a
+// hostile X-APIVersion header (e.g. "1.1.1.1...") can't allocate a large
+// slice. Real version strings are only a handful of parts; anything beyond
+// this is left unparsed (the overflow segment fails strconv.Atoi and stops
+// parsing early).
+const maxVersionParts = 8
+
 func NewVer(value string) *Ver {
 	ver := &Ver{Value: value}
-	parts := strings.Split(value, ".")
+	parts := strings.SplitN(value, ".", maxVersionParts+1)
 
 	for _, part := range parts {
 		i, err := strconv.Atoi(part)
@@ -92,10 +99,10 @@ func (v *versionRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func Current(ctx context.Context) *Ver {
-	value := ctx.Value(versionCtxKey)
-	if value == nil {
+	ver, ok := ctx.Value(versionCtxKey).(*Ver)
+	if !ok {
 		return nil
 	}
 
-	return value.(*Ver)
+	return ver
 }
