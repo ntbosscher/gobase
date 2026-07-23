@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -14,6 +15,8 @@ import (
 	"github.com/ntbosscher/gobase/auth"
 	"github.com/ntbosscher/gobase/auth/httpauth/oauth"
 	"github.com/ntbosscher/gobase/env"
+	"github.com/ntbosscher/gobase/ratelimit"
+	"github.com/ntbosscher/gobase/requestip"
 	"github.com/ntbosscher/gobase/res"
 	"github.com/ntbosscher/gobase/strs"
 )
@@ -104,6 +107,39 @@ type Config struct {
 
 	// default: refresh-token
 	RefreshTokenCookieName string
+
+	// LoginPerIPRateLimitCount / LoginPerIPRateLimitWindow set the per-client-IP
+	// rate limit on the login endpoint: a client IP is allowed
+	// LoginPerIPRateLimitCount failed login attempts within
+	// LoginPerIPRateLimitWindow before further attempts are rejected with 429 Too
+	// Many Requests until its bucket refills. Successful logins don't consume the
+	// bucket, so legitimate users are unaffected while online credential-stuffing
+	// / brute-force is throttled.
+	//
+	// The client IP is taken from the requestip middleware (requestip.IP); if
+	// that middleware isn't installed it falls back to the raw peer address.
+	//
+	// Defaults when unset: 10 attempts per minute. Set
+	// LoginPerIPRateLimitDisabled to turn the limit off entirely.
+	LoginPerIPRateLimitCount    int
+	LoginPerIPRateLimitWindow   time.Duration
+	LoginPerIPRateLimitDisabled bool
+
+	// LoginPerUsernameRateLimitCount / LoginPerUsernameRateLimitWindow set a
+	// per-account failed-attempt lockout on the login endpoint, complementing the
+	// per-IP limit above: a single account (by username) is allowed
+	// LoginPerUsernameRateLimitCount failed login attempts within
+	// LoginPerUsernameRateLimitWindow before further attempts are rejected with
+	// 429 Too Many Requests until its bucket refills. This throttles a distributed
+	// / low-and-slow brute force spread across many IPs against one account, which
+	// the per-IP limit alone cannot stop. Successful logins don't consume the
+	// bucket.
+	//
+	// Defaults when unset: 5 attempts per 15 minutes. Set
+	// LoginPerUsernameRateLimitDisabled to turn it off entirely.
+	LoginPerUsernameRateLimitCount    int
+	LoginPerUsernameRateLimitWindow   time.Duration
+	LoginPerUsernameRateLimitDisabled bool
 
 	// route prefixes that don't require authentication
 	PublicRoutePrefixes []string
@@ -468,7 +504,53 @@ func setupSession(rq *res.Request, user *auth.UserInfo, config *Config) (info *S
 }
 
 func loginHandler(config *Config) res.HandlerFunc2 {
+
+	// Throttles on failed login attempts, built once so all requests share the
+	// same buckets. Only failed logins consume a token, so buckets empty under
+	// brute-force / credential-stuffing but not under normal use.
+	//
+	//   - ipLimiter keys by client IP: stops one source spamming logins.
+	//   - accountLimiter keys by username: stops a distributed brute force
+	//     spread across many IPs against a single account.
+	var ipLimiter *ratelimit.KeyedLimiter
+	if !config.LoginPerIPRateLimitDisabled {
+		count := config.LoginPerIPRateLimitCount
+		if count == 0 {
+			count = 10
+		}
+
+		window := config.LoginPerIPRateLimitWindow
+		if window == 0 {
+			window = time.Minute
+		}
+
+		ipLimiter = ratelimit.NewKeyed(count, window)
+	}
+
+	var accountLimiter *ratelimit.KeyedLimiter
+	if !config.LoginPerUsernameRateLimitDisabled {
+		count := config.LoginPerUsernameRateLimitCount
+		if count == 0 {
+			count = 5
+		}
+
+		window := config.LoginPerUsernameRateLimitWindow
+		if window == 0 {
+			window = 15 * time.Minute
+		}
+
+		accountLimiter = ratelimit.NewKeyed(count, window)
+	}
+
 	return func(rq *res.Request) res.Responder {
+
+		var ipKey string
+		if ipLimiter != nil {
+			ipKey = loginRateLimitKey(rq)
+			if err := ipLimiter.IsLimited(ipKey); err != nil {
+				return res.TooMayRequests()
+			}
+		}
 
 		creds := &Credential{}
 
@@ -483,8 +565,23 @@ func loginHandler(config *Config) res.HandlerFunc2 {
 
 		creds.Raw = jsonBytes
 
+		accountKey := accountLockoutKey(creds.Username)
+		if accountLimiter != nil && accountKey != "" {
+			if err := accountLimiter.IsLimited(accountKey); err != nil {
+				return res.TooMayRequests()
+			}
+		}
+
 		user, err := config.CredentialChecker(rq.Context(), creds)
 		if err != nil {
+			if ipLimiter != nil {
+				_ = ipLimiter.Take(ipKey)
+			}
+
+			if accountLimiter != nil && accountKey != "" {
+				_ = accountLimiter.Take(accountKey)
+			}
+
 			return res.AppError(err.Error())
 		}
 
@@ -495,6 +592,30 @@ func loginHandler(config *Config) res.HandlerFunc2 {
 
 		return res.Ok(info)
 	}
+}
+
+// loginRateLimitKey identifies the client for login rate limiting. It prefers
+// the IP resolved by the requestip middleware (which applies the app's
+// trusted-proxy policy); if that middleware isn't installed it falls back to the
+// raw TCP peer address.
+func loginRateLimitKey(rq *res.Request) string {
+	if ip := requestip.IP(rq.Context()); ip != "" {
+		return ip
+	}
+
+	remote := rq.Request().RemoteAddr
+	if host, _, err := net.SplitHostPort(remote); err == nil {
+		return host
+	}
+
+	return remote
+}
+
+// accountLockoutKey normalizes the submitted username into a stable lockout key
+// so that case/whitespace variants of the same account can't each get their own
+// fresh bucket. Returns "" when no username was supplied (nothing to key on).
+func accountLockoutKey(username string) string {
+	return strings.ToLower(strings.TrimSpace(username))
 }
 
 type Credential struct {
