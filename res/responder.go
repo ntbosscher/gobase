@@ -194,7 +194,7 @@ func (resp *freeformResponder) Respond(w http.ResponseWriter, r *http.Request) {
 func Download(name string, data io.ReadSeeker) Responder {
 	return &freeformResponder{
 		respond: func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Add("Content-Disposition", "attachment; filename="+SanitizeDispositionName(name)+"")
+			w.Header().Add("Content-Disposition", contentDisposition("attachment", name))
 			http.ServeContent(w, r, name, time.Now(), data)
 
 			if cl, ok := data.(io.Closer); ok {
@@ -204,16 +204,93 @@ func Download(name string, data io.ReadSeeker) Responder {
 	}
 }
 
-// there's a chrome bug that doesn't handle commas in Content-Disposition filenames
-// https://answers.nuxeo.com/general/q/d8348e07fe5e441183bae07dfda00e40/Comma-in-file-name-cause-problem-in-Chrome-Browser
+// contentDisposition builds an RFC 6266-compliant Content-Disposition header
+// value for a user-supplied filename. It emits a quoted, ASCII-only filename
+// (control bytes incl. CR/LF, quotes and backslashes removed so the value can
+// neither break the header nor inject extra parameters) plus a UTF-8 filename*
+// per RFC 5987 so non-ASCII names survive intact in modern clients.
+func contentDisposition(disposition, fileName string) string {
+	out := disposition + `; filename="` + SanitizeDispositionName(fileName) + `"`
+
+	if hasNonASCII(fileName) {
+		out += `; filename*=UTF-8''` + encodeRFC5987(fileName)
+	}
+
+	return out
+}
+
+// SanitizeDispositionName returns an ASCII, header-safe filename for use inside
+// a quoted Content-Disposition filename parameter. It drops control bytes
+// (including CR/LF, which would otherwise allow header injection), non-ASCII
+// bytes (carried by filename* instead), the double-quote and backslash (which
+// are special inside a quoted-string), and commas (a legacy Chrome bug:
+// https://answers.nuxeo.com/general/q/d8348e07fe5e441183bae07dfda00e40/Comma-in-file-name-cause-problem-in-Chrome-Browser).
 func SanitizeDispositionName(fileName string) string {
-	return strings.Replace(fileName, ",", "", -1)
+	var b strings.Builder
+
+	for _, ru := range fileName {
+		switch {
+		case ru < 0x20 || ru == 0x7f: // control chars incl. CR/LF
+		case ru > 0x7f: // non-ASCII
+		case ru == '"' || ru == '\\' || ru == ',':
+		default:
+			b.WriteRune(ru)
+		}
+	}
+
+	return b.String()
+}
+
+func hasNonASCII(s string) bool {
+	for _, ru := range s {
+		if ru > 0x7f {
+			return true
+		}
+	}
+
+	return false
+}
+
+// encodeRFC5987 percent-encodes s per the RFC 5987 ext-value grammar: every
+// octet outside the attr-char set is %XX-encoded (uppercase hex).
+func encodeRFC5987(s string) string {
+	const upperhex = "0123456789ABCDEF"
+
+	var b strings.Builder
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if isAttrChar(c) {
+			b.WriteByte(c)
+			continue
+		}
+
+		b.WriteByte('%')
+		b.WriteByte(upperhex[c>>4])
+		b.WriteByte(upperhex[c&0x0f])
+	}
+
+	return b.String()
+}
+
+func isAttrChar(c byte) bool {
+	switch {
+	case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+		return true
+	}
+
+	switch c {
+	case '!', '#', '$', '&', '+', '-', '.', '^', '_', '`', '|', '~':
+		return true
+	}
+
+	return false
 }
 
 func Display(name string, data io.ReadSeeker) Responder {
 	return &freeformResponder{
 		respond: func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Add("Content-Disposition", "inline; filename="+SanitizeDispositionName(name)+"")
+			w.Header().Add("Content-Disposition", contentDisposition("inline", name))
 			http.ServeContent(w, r, name, time.Now(), data)
 
 			if cl, ok := data.(io.Closer); ok {
