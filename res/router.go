@@ -81,6 +81,15 @@ func (rt *Router) Route(method string, path string, handler HandlerFunc2) {
 }
 
 func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Apply the body-size cap at the router entry so it covers every route,
+	// including raw http.Handler routes that don't go through WrapHTTPFunc (e.g.
+	// the github-deploy webhook, which reads its body to verify the HMAC). Normal
+	// res handlers re-apply the same cap in WrapHTTPFunc; re-wrapping with the same
+	// limit is harmless.
+	if MaxRequestBodySize > 0 && r.Body != nil {
+		r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBodySize)
+	}
+
 	rt.next.ServeHTTP(w, r)
 }
 
