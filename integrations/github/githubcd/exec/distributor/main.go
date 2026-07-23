@@ -64,6 +64,22 @@ func handler(rq *res.Request) res.Responder {
 	})
 }
 
+// serverBaseURL returns the base URL for a target server, defaulting to https.
+//
+// The forwarded request carries a valid HMAC signature (x-hub-signature-256).
+// Over cleartext http:// an on-path attacker can capture that header and replay
+// it into the deploy/RCE path — the GitHub-compatible signature has no
+// timestamp/nonce, so it can't self-expire. Defaulting to TLS removes the
+// capture vector. Operators can still force plaintext for a specific internal
+// server by putting an explicit http:// prefix in the SERVERS env entry.
+func serverBaseURL(name string) string {
+	if strings.HasPrefix(name, "http://") || strings.HasPrefix(name, "https://") {
+		return strings.TrimRight(name, "/")
+	}
+
+	return "https://" + name
+}
+
 func performUpgrade(requestBody []byte, servers []string) error {
 
 	log.Println("starting upgrade")
@@ -72,9 +88,10 @@ func performUpgrade(requestBody []byte, servers []string) error {
 
 		log.Println("sending", name, "the update webhook...")
 
-		rq, err := http.NewRequest("POST", "http://"+name+remoteHookPath, bytes.NewReader(requestBody))
+		rq, err := http.NewRequest("POST", serverBaseURL(name)+remoteHookPath, bytes.NewReader(requestBody))
 		if err != nil {
 			log.Println(err)
+			continue
 		}
 
 		if err := githubcdutil.SignAndSetHeader(rq, secret, requestBody); err != nil {
@@ -84,6 +101,7 @@ func performUpgrade(requestBody []byte, servers []string) error {
 		resp, err := http.DefaultClient.Do(rq)
 		if err != nil {
 			log.Println(err)
+			continue
 		}
 
 		if resp.StatusCode >= 400 {
@@ -97,7 +115,7 @@ func performUpgrade(requestBody []byte, servers []string) error {
 		timeout := time.Now().Add(30 * time.Second)
 
 		for time.Now().Before(timeout) {
-			resp, err := http.Get("http://" + name + "/")
+			resp, err := http.Get(serverBaseURL(name) + "/")
 			if err != nil {
 				log.Println(name, "attempting...", err.Error())
 				<-time.After(1 * time.Second)
