@@ -91,7 +91,7 @@ func main() {
 		})
 
 		return bgtaskutil.TaskResult(taskId)
-	})
+	}, RoleUser)
 
 	// restrict to internal users
 	rt.Add("POST", "/api/product", todo, RoleInternal)
