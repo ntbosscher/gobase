@@ -94,10 +94,20 @@ type HttpError struct {
 }
 
 func (h *HttpError) Unwrap() error {
+	if h == nil {
+		return nil
+	}
 	return h.Err
 }
 
 func (h *HttpError) Error() string {
+	// Guard against a HttpError constructed without an underlying Err (e.g.
+	// panic(&HttpError{Code: 500})). Error()/Unwrap() run inside the
+	// panic-recovery path (HandleErrors); a nil-deref here would panic the
+	// recover handler and crash the whole process.
+	if h == nil || h.Err == nil {
+		return "http error"
+	}
 	return h.Err.Error()
 }
 
