@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io/ioutil"
 	"log"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/ntbosscher/gobase/auth"
 	"github.com/ntbosscher/gobase/auth/httpauth/oauth"
 	"github.com/ntbosscher/gobase/env"
+	"github.com/ntbosscher/gobase/er"
 	"github.com/ntbosscher/gobase/ratelimit"
 	"github.com/ntbosscher/gobase/requestip"
 	"github.com/ntbosscher/gobase/res"
@@ -340,7 +340,10 @@ func authHandler(config *Config) func(rq *res.Request) (res.Responder, context.C
 	if notAuthenticatedResponder == nil {
 		notAuthenticatedResponder = func(rq *res.Request, err error) res.Responder {
 			if err != nil {
-				return res.NotAuthorized(err.Error())
+				// Log the specific reason server-side but don't echo it to the
+				// client — token-parse / API-token-check errors can carry internal
+				// detail. Apps needing a custom message can set NotAuthorizedResponder.
+				er.ErrorLog.Println("httpauth: not authorized:", err)
 			}
 
 			return res.NotAuthorized()
@@ -416,7 +419,8 @@ func refreshHandler(config *Config) res.HandlerFunc2 {
 
 		claims, err := parseJwt(refreshToken, auth.TokenTypeRefresh)
 		if err != nil {
-			return res.AppError("Access denied: " + err.Error())
+			er.ErrorLog.Println("httpauth: refresh: parse token:", err)
+			return res.AppError("Access denied")
 		}
 
 		if config.ValidateActiveUser != nil {
@@ -426,13 +430,14 @@ func refreshHandler(config *Config) res.HandlerFunc2 {
 				// endpoint. This isn't desirable for api-access types.
 				removeCookies(rq, config)
 
-				return res.AppError("Access denied: " + err.Error())
+				er.ErrorLog.Println("httpauth: refresh: validate user:", err)
+				return res.AppError("Access denied")
 			}
 		}
 
 		accessToken, accessTokenExpiry, err := createAccessToken(claims, config.AccessTokenLifeTime)
 		if err != nil {
-			return res.AppError("Failed to create access token: " + err.Error())
+			return res.Error(err)
 		}
 
 		http.SetCookie(rq.Writer(), &http.Cookie{
@@ -556,11 +561,13 @@ func loginHandler(config *Config) res.HandlerFunc2 {
 
 		jsonBytes, err := ioutil.ReadAll(rq.Request().Body)
 		if err != nil {
-			return res.BadRequest(err.Error())
+			er.ErrorLog.Println("httpauth: login: read body:", err)
+			return res.BadRequest("Invalid request")
 		}
 
 		if err := json.Unmarshal(jsonBytes, creds); err != nil {
-			return res.BadRequest(err.Error())
+			er.ErrorLog.Println("httpauth: login: parse body:", err)
+			return res.BadRequest("Invalid request")
 		}
 
 		creds.Raw = jsonBytes
@@ -582,7 +589,11 @@ func loginHandler(config *Config) res.HandlerFunc2 {
 				_ = accountLimiter.Take(accountKey)
 			}
 
-			return res.AppError(err.Error())
+			// The credential checker's error can carry internal detail (and even
+			// distinguish "no such user" from "bad password"). Log it server-side
+			// and return a single generic failure to the client.
+			er.ErrorLog.Println("httpauth: login: credential check:", err)
+			return res.AppError("Login failed")
 		}
 
 		info, err := setupSession(rq, user, config)
@@ -599,16 +610,7 @@ func loginHandler(config *Config) res.HandlerFunc2 {
 // trusted-proxy policy); if that middleware isn't installed it falls back to the
 // raw TCP peer address.
 func loginRateLimitKey(rq *res.Request) string {
-	if ip := requestip.IP(rq.Context()); ip != "" {
-		return ip
-	}
-
-	remote := rq.Request().RemoteAddr
-	if host, _, err := net.SplitHostPort(remote); err == nil {
-		return host
-	}
-
-	return remote
+	return requestip.KeyFromRequest(rq.Context(), rq.Request().RemoteAddr)
 }
 
 // accountLockoutKey normalizes the submitted username into a stable lockout key
