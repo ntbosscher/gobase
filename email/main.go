@@ -51,6 +51,9 @@ type TemplateInput struct {
 	// url or data-url
 	Logo string
 
+	// Title is rendered as raw, un-escaped HTML. Do NOT pass untrusted/user-supplied
+	// input here or you open an HTML-injection hole in the email. Use plain text only,
+	// or pre-escape with template.HTMLEscapeString.
 	Title          template.HTML
 	Sections       []*Section
 	ContactAddress []string
@@ -62,7 +65,10 @@ type Section struct {
 	Width       string
 	PaddingLeft string
 	Button      ButtonDetails
-	HTML        template.HTML
+	// HTML is rendered as raw, un-escaped HTML. Do NOT pass untrusted/user-supplied
+	// input here or you open an HTML-injection hole in the email. Pre-escape untrusted
+	// content with template.HTMLEscapeString before building the section.
+	HTML template.HTML
 }
 
 type ButtonDetails struct {
@@ -71,6 +77,10 @@ type ButtonDetails struct {
 	Variant string
 }
 
+// SectionHTML builds a section from raw HTML. The html argument is rendered
+// verbatim (no escaping), so it must be trusted markup — never pass
+// untrusted/user-supplied input directly. Pre-escape untrusted content with
+// template.HTMLEscapeString first.
 func SectionHTML(html string) *Section {
 	return &Section{
 		Type: "html",
