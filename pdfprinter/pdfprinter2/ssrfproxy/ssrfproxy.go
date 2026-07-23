@@ -24,6 +24,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/ntbosscher/gobase/env"
 )
 
 // Options configures a Proxy. The zero value is usable; all fields are optional.
@@ -261,14 +263,26 @@ func (e *BlockedError) Error() string {
 // untrusted content: loopback, RFC1918/ULA private, link-local (incl. the
 // 169.254.169.254 cloud-metadata address), carrier-grade NAT, unspecified, and
 // all multicast.
+//
+// As an exception, loopback (127.0.0.0/8, ::1) is allowed when env.IsTesting is
+// set (TEST=true), so tests can render against a local httptest server. Only
+// loopback is relaxed — private, link-local, metadata, and CGNAT ranges stay
+// blocked even under testing. Never set TEST=true in an environment that renders
+// untrusted HTML.
 func IsBlockedIP(ip net.IP) bool {
 	if ip == nil {
 		return true
 	}
 
+	// Loopback is blocked in normal operation, but allowed under test so a local
+	// httptest server is reachable.
+	if ip.IsLoopback() && !env.IsTesting {
+		return true
+	}
+
 	// IsPrivate covers RFC1918 + fc00::/7 (ULA); IsLinkLocalUnicast covers
 	// 169.254.0.0/16 (incl. cloud metadata) + fe80::/10.
-	if ip.IsLoopback() || ip.IsPrivate() ||
+	if ip.IsPrivate() ||
 		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
 		ip.IsInterfaceLocalMulticast() || ip.IsMulticast() ||
 		ip.IsUnspecified() {
