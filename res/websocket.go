@@ -214,6 +214,11 @@ var muWebsocketIdCounter = &sync.Mutex{}
 
 // WebSocket creates an endpoint to handle websocket upgrades. handler is responsible
 // for processing and closing the connection.
+//
+// Note: unlike role-gated routes (e.g. r.Router.Add with RequireRole), this
+// registers the endpoint directly and does NOT apply any auth/role middleware.
+// By design, the handler owns authentication and authorization — it must reject
+// unauthenticated or under-privileged connections itself before doing any work.
 func (rt *Router) WebSocket(method string, path string, handler SocketHandler) {
 	rt.next.Methods(method).Path(path).HandlerFunc(WebSocket(handler))
 }
