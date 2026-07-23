@@ -13,6 +13,7 @@ import (
 
 	jsoniter "github.com/json-iterator/go"
 	"github.com/json-iterator/go/extra"
+	"github.com/ntbosscher/gobase/er"
 )
 
 var json = jsoniter.ConfigDefault
@@ -163,8 +164,23 @@ func WrapHTTP(server http.Handler) Responder {
 	}}
 }
 
+// Error returns a client-safe responder for err. Following the same disclosure
+// policy as the panic handler, the underlying error is logged server-side while
+// the client receives only a generic message — unless er.ReturnErrorMessageToClient
+// is set (typically dev mode), in which case the detail is passed through. This
+// prevents raw DB/driver/internal error text from leaking to callers.
 func Error(err error) Responder {
-	return AppError(err.Error())
+	if err == nil {
+		return AppError(er.GenericErrorMessage)
+	}
+
+	er.ErrorLog.Println(err.Error())
+
+	if er.ReturnErrorMessageToClient {
+		return AppError(err.Error())
+	}
+
+	return AppError(er.GenericErrorMessage)
 }
 
 type freeformResponder struct {
