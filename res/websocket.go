@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -209,6 +210,53 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
+// DoS-protection tunables for websocket connections. Both are read at connection
+// setup, so changes apply to connections opened afterwards.
+var (
+	// MaxWebSocketMessageBytes caps the size of a single inbound message. A
+	// message larger than this closes the connection (via conn.SetReadLimit)
+	// instead of being read unbounded into memory, so a hostile client can't
+	// exhaust memory with one huge frame. 0 disables the limit.
+	MaxWebSocketMessageBytes int64 = 1 * 1024 * 1024
+
+	// MaxConcurrentWebSockets caps the number of simultaneously-open websocket
+	// connections across the process. Once reached, further upgrade requests are
+	// rejected with 503 Service Unavailable until a slot frees. Each connection
+	// holds goroutines (and often a Postgres LISTEN), so an uncapped count lets a
+	// client exhaust memory/connections. 0 disables the cap.
+	MaxConcurrentWebSockets int64 = 1024
+)
+
+var openWebSocketCount int64
+
+// acquireWebSocketSlot reserves a connection slot, returning false if the process
+// is already at MaxConcurrentWebSockets. Every successful reservation must be
+// released with releaseWebSocketSlot when the connection closes. The counter is
+// always maintained (even when the cap is disabled) so toggling
+// MaxConcurrentWebSockets at runtime can't underflow it.
+func acquireWebSocketSlot() bool {
+	limit := MaxConcurrentWebSockets
+	if limit <= 0 {
+		atomic.AddInt64(&openWebSocketCount, 1)
+		return true
+	}
+
+	for {
+		cur := atomic.LoadInt64(&openWebSocketCount)
+		if cur >= limit {
+			return false
+		}
+
+		if atomic.CompareAndSwapInt64(&openWebSocketCount, cur, cur+1) {
+			return true
+		}
+	}
+}
+
+func releaseWebSocketSlot() {
+	atomic.AddInt64(&openWebSocketCount, -1)
+}
+
 var websocketIdCounter = 0
 var muWebsocketIdCounter = &sync.Mutex{}
 
@@ -232,10 +280,27 @@ func WebSocket(handler SocketHandler) func(writer http.ResponseWriter, request *
 		muWebsocketIdCounter.Unlock()
 
 		logVerbose(id, errors.New("got websocket request"))
+
+		// Reserve a concurrency slot before doing the upgrade handshake so an
+		// attacker can't force unbounded connection/goroutine growth.
+		if !acquireWebSocketSlot() {
+			logVerbose(id, errors.New("websocket rejected: at MaxConcurrentWebSockets"))
+			http.Error(writer, "too many websocket connections", http.StatusServiceUnavailable)
+			return
+		}
+
 		conn, err := upgrader.Upgrade(writer, request, nil)
 		if err != nil {
+			releaseWebSocketSlot()
 			logVerbose(id, fmt.Errorf("websocket upgrade failed: %v", err))
 			return
+		}
+
+		// Bound a single inbound message so a hostile client can't stream an
+		// unbounded frame into memory. Exceeding this closes the connection, which
+		// receive() observes as a read error and tears down.
+		if MaxWebSocketMessageBytes > 0 {
+			conn.SetReadLimit(MaxWebSocketMessageBytes)
 		}
 
 		logVerbose(id, errors.New("websocket request upgraded"))
@@ -248,6 +313,15 @@ func WebSocket(handler SocketHandler) func(writer http.ResponseWriter, request *
 			notifyHasMessage: make(chan bool),
 			mu:               sync.Mutex{},
 		}
+
+		// Release the concurrency slot once the connection closes. onClose is
+		// captured now (before it can be niled by closeChan) and is closed exactly
+		// once, so the slot is released exactly once.
+		done := wConn.OnClose()
+		go func() {
+			<-done
+			releaseWebSocketSlot()
+		}()
 
 		go wConn.receive()
 		go wConn.watch()
