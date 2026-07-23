@@ -275,3 +275,10 @@ func (i *interceptWriter) WriteHeader(status int) {
 func (i *interceptWriter) Header() http.Header {
 	return i.next.Header()
 }
+
+// Unwrap exposes the underlying ResponseWriter so that http.ResponseController
+// (and therefore SSE flushing, connection hijacking, etc.) can reach the real
+// Flusher/Hijacker beneath this wrapper.
+func (i *interceptWriter) Unwrap() http.ResponseWriter {
+	return i.next
+}

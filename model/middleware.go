@@ -135,3 +135,10 @@ func (h *httpWriteWrapper) WriteHeader(statusCode int) {
 func (h *httpWriteWrapper) Header() http.Header {
 	return h.ResponseWriter.Header()
 }
+
+// Unwrap exposes the underlying ResponseWriter so that http.ResponseController
+// (and therefore SSE flushing, connection hijacking, etc.) can reach the real
+// Flusher/Hijacker beneath the tx wrapper.
+func (h *httpWriteWrapper) Unwrap() http.ResponseWriter {
+	return h.ResponseWriter
+}
