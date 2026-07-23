@@ -39,8 +39,14 @@ type Config struct {
 	// PartitionedCookies controls whether or not to set the partitioned flag on http cookies (CHIPS)
 	PartitionedCookies bool
 
-	// SameSite: wether or not to restrict cookies to SameSite
-	// default: http default
+	// SameSite controls the SameSite attribute on the authorization cookies.
+	// default: http.SameSiteLaxMode — a secure default that stops the browser
+	// from sending the auth cookie on cross-site state-changing requests, which
+	// mitigates CSRF.
+	//   - Sites spanning multiple apex domains need http.SameSiteNoneMode
+	//     (which also requires Secure cookies to be accepted by browsers).
+	//   - To emit no SameSite attribute at all, set http.SameSiteDefaultMode
+	//     explicitly.
 	SameSite http.SameSite
 
 	// Optional oauth config
@@ -140,6 +146,18 @@ func Setup(router *res.Router, config Config) *AuthRouter {
 	if config.SecureCookies == nil {
 		secureDefault := !env.IsTesting
 		config.SecureCookies = &secureDefault
+	}
+
+	// Secure default for SameSite. The zero value (http.SameSite(0)) emits no
+	// SameSite attribute, which leaves cookie auth open to CSRF; default it to
+	// Lax. Callers can still opt into any explicit mode (e.g. None for
+	// multi-apex-domain sites, or DefaultMode to keep the attribute off).
+	if config.SameSite == 0 {
+		config.SameSite = http.SameSiteLaxMode
+	}
+
+	if config.SameSite == http.SameSiteNoneMode && !*config.SecureCookies {
+		log.Println("httpauth: SameSite=None requires Secure cookies; browsers will reject the auth cookies without Secure set")
 	}
 
 	loginPath := strs.Coalesce(config.LoginPath, defaultLoginEndpoint)
@@ -317,9 +335,13 @@ func authHandler(config *Config) func(rq *res.Request) (res.Responder, context.C
 
 func parseJwt(tokenString string, expected auth.TokenType) (*auth.UserInfo, error) {
 	user := &auth.UserInfo{}
+	// Pin the accepted signing algorithm. Tokens are signed with HS256
+	// (createAccessToken/createRefreshToken), so refuse anything else — this
+	// blocks alg-substitution attacks (e.g. "none", or an RS256/HS256 key
+	// confusion) as defense-in-depth.
 	token, err := jwt.ParseWithClaims(tokenString, user, func(token *jwt.Token) (interface{}, error) {
 		return jwtKey, nil
-	})
+	}, jwt.WithValidMethods([]string{"HS256"}))
 
 	if err != nil {
 		return nil, err
