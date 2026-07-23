@@ -295,8 +295,10 @@ func (p *printerObj) setupBrowser(ctx context.Context) (playwright.BrowserContex
 				// proxy for localhost/127.0.0.1 by default; "<-loopback>"
 				// removes that implicit bypass so 127.0.0.1 SSRF can't skip it.
 				"--proxy-bypass-list=<-loopback>",
-				// Keep WebRTC from opening direct (non-proxied) UDP sockets that
-				// would sidestep the proxy and could reach internal IPs.
+				// Defense-in-depth for WebRTC: the APIs are already removed per
+				// context (webRTCBlockScript), but if any path slips through,
+				// this stops it opening direct (non-proxied) UDP sockets that
+				// would sidestep the proxy and reach internal IPs.
 				"--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
 				// Prefer TCP+CONNECT for TLS; avoids any UDP/QUIC path around
 				// the proxy.
@@ -316,6 +318,17 @@ func (p *printerObj) setupBrowser(ctx context.Context) (playwright.BrowserContex
 
 	bctx, err := p.chrome.NewContext()
 	if err != nil {
+		Logger.Println(err)
+		p.shutdownInstanceUnsafe()
+		return nil, nil, err
+	}
+
+	// Remove the WebRTC APIs from every page before any page script runs.
+	// WebRTC is never needed to render a PDF and is an SSRF/deanonymization
+	// vector (host ICE candidates, STUN/TURN), so we delete the entry points
+	// outright rather than only constraining them via launch flags — this holds
+	// even if a future Chromium drops the flag.
+	if err := bctx.AddInitScript(playwright.Script{Content: playwright.String(webRTCBlockScript)}); err != nil {
 		Logger.Println(err)
 		p.shutdownInstanceUnsafe()
 		return nil, nil, err
@@ -434,6 +447,31 @@ func (p *printerObj) Print(ctx context.Context, input PrintOptInput) ([]byte, er
 		Scale: playwright.Float(1),
 	})
 }
+
+// webRTCBlockScript removes the WebRTC constructors from the page. It defines
+// them as non-writable, non-configurable `undefined` so attacker JS can neither
+// construct a peer connection (`new RTCPeerConnection` -> TypeError) nor restore
+// the globals, while feature-detection (`if (window.RTCPeerConnection)`) simply
+// sees them as absent and skips WebRTC gracefully. getUserMedia is also stubbed
+// so it can't feed a connection.
+const webRTCBlockScript = `(() => {
+  const strip = (obj, name) => {
+    try { Object.defineProperty(obj, name, { value: undefined, writable: false, configurable: false }); }
+    catch (e) { try { obj[name] = undefined; } catch (e2) {} }
+  };
+  for (const n of ['RTCPeerConnection', 'webkitRTCPeerConnection', 'mozRTCPeerConnection',
+                   'RTCDataChannel', 'RTCSessionDescription', 'RTCIceCandidate']) {
+    strip(window, n);
+  }
+  try {
+    if (navigator.mediaDevices) {
+      navigator.mediaDevices.getUserMedia = () => Promise.reject(new Error('disabled'));
+    }
+  } catch (e) {}
+  strip(navigator, 'getUserMedia');
+  strip(navigator, 'webkitGetUserMedia');
+  strip(navigator, 'mozGetUserMedia');
+})();`
 
 // applyNetworkGuard intercepts every request the page makes and aborts the ones
 // the policy rejects. It enforces scheme policy and the caller's
