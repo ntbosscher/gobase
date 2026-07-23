@@ -135,6 +135,10 @@ func WrapHTTPFunc(handler HandlerFunc2) http.HandlerFunc {
 			handlePanic(input).Respond(wr, req)
 		})
 
+		if MaxRequestBodySize > 0 && req.Body != nil {
+			req.Body = http.MaxBytesReader(wr, req.Body, MaxRequestBodySize)
+		}
+
 		res := handler(NewRequest(wr, req))
 		res.Respond(wr, req)
 	}
@@ -156,6 +160,19 @@ func NewRequest(wr http.ResponseWriter, req *http.Request) *Request {
 type HandlerFunc2 = func(rq *Request) Responder
 
 var MultipartMaxFormSize = 10 * 1000 * 1000 // 10 MB
+
+// MaxRequestBodySize caps the total number of bytes any handler can read from a
+// request body (via http.MaxBytesReader), across the whole request rather than
+// just the in-memory portion. MultipartMaxFormSize only bounds what a multipart
+// parse buffers in memory before spilling the rest to disk; without this cap an
+// upload can be driven to exhaust disk, and handlers that io.ReadAll +
+// decode the whole body are exposed to decompression/size DoS.
+//
+// The limit is enforced at read time: once exceeded the body read fails, which
+// surfaces as an error through the normal handler/panic path. Apps that legitimately
+// accept larger uploads should raise this (or set it to 0 to disable the cap)
+// during setup, before routes serve traffic.
+var MaxRequestBodySize int64 = 64 * 1000 * 1000 // 64 MB
 
 type Request struct {
 	req *http.Request
