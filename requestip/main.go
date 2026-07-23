@@ -224,3 +224,20 @@ func IP(ctx context.Context) string {
 
 	return value.(string)
 }
+
+// KeyFromRequest returns a stable per-client key suitable for rate limiting. It
+// prefers the trusted-proxy-resolved client IP (available when Middleware is
+// installed) and otherwise falls back to the raw TCP peer host parsed from
+// remoteAddr. If remoteAddr has no port it is returned unchanged. Callers should
+// pass r.RemoteAddr as remoteAddr.
+func KeyFromRequest(ctx context.Context, remoteAddr string) string {
+	if ip := IP(ctx); ip != "" {
+		return ip
+	}
+
+	if host := hostOnly(remoteAddr); host != "" {
+		return host
+	}
+
+	return remoteAddr
+}

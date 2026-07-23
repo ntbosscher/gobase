@@ -6,6 +6,7 @@ import (
 	"github.com/ntbosscher/gobase/auth/httpauth"
 	"github.com/ntbosscher/gobase/er"
 	"github.com/ntbosscher/gobase/ratelimit"
+	"github.com/ntbosscher/gobase/requestip"
 	"github.com/ntbosscher/gobase/res"
 	"github.com/ntbosscher/gobase/strs"
 	errors2 "github.com/pkg/errors"
@@ -194,11 +195,11 @@ func Versioned(versionedHandlers ...VersionedHandler) res.HandlerFunc2 {
 
 func RateLimit(n int, window time.Duration) Middleware {
 	return func(r *Router, method, path string, next res.HandlerFunc2) res.HandlerFunc2 {
-		limiter := ratelimit.New(n, window)
+		limiter := ratelimit.NewKeyed(n, window)
 
 		return func(rq *res.Request) res.Responder {
 
-			if err := limiter.Take(); err != nil {
+			if err := limiter.Take(clientKey(rq)); err != nil {
 				return res.TooMayRequests()
 			}
 
@@ -211,11 +212,13 @@ func RateLimit(n int, window time.Duration) Middleware {
 // When the rate limit bucket is empty, all requests are blocked with response TooManyRequests
 func RateLimitErr(n int, window time.Duration) Middleware {
 	return func(r *Router, method, path string, next res.HandlerFunc2) res.HandlerFunc2 {
-		limiter := ratelimit.New(n, window)
+		limiter := ratelimit.NewKeyed(n, window)
 
 		return func(rq *res.Request) res.Responder {
 
-			if err := limiter.IsLimited(); err != nil {
+			key := clientKey(rq)
+
+			if err := limiter.IsLimited(key); err != nil {
 				return res.TooMayRequests()
 			}
 
@@ -223,12 +226,21 @@ func RateLimitErr(n int, window time.Duration) Middleware {
 				next: next(rq),
 				onStatusCode: func(value int) {
 					if value >= 400 {
-						_ = limiter.Take()
+						_ = limiter.Take(key)
 					}
 				},
 			}
 		}
 	}
+}
+
+// clientKey identifies the caller so the rate limiters bucket per-client instead
+// of sharing one global bucket across everyone. It uses the trusted-proxy-aware
+// client IP from requestip (falling back to the raw peer address). Without the
+// requestip middleware installed every caller resolves to the same RemoteAddr
+// shape, so keying is only as trustworthy as that middleware's configuration.
+func clientKey(rq *res.Request) string {
+	return requestip.KeyFromRequest(rq.Context(), rq.Request().RemoteAddr)
 }
 
 type statusCodeSpyResponder struct {
