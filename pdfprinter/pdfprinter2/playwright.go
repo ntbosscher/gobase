@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mxschmitt/playwright-go"
 	"github.com/ntbosscher/gobase/pdfprinter/pdfprinter2/ssrfproxy"
-	"github.com/playwright-community/playwright-go"
 )
 
 // Tunable limits. Override these to change the renderer's resource bounds. All

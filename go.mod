@@ -28,8 +28,8 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/mailgun/mailgun-go/v4 v4.23.0
 	github.com/markbates/goth v1.82.0
+	github.com/mxschmitt/playwright-go v0.6100.0
 	github.com/pkg/errors v0.9.1
-	github.com/playwright-community/playwright-go v0.5700.1
 	golang.org/x/image v0.43.0
 	golang.org/x/sys v0.46.0
 )
