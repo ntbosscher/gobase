@@ -10,13 +10,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Masterminds/squirrel"
 	"github.com/gobuffalo/nulls"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/ntbosscher/gobase/env"
 	"github.com/ntbosscher/gobase/er"
 	"github.com/ntbosscher/gobase/model"
-	"github.com/ntbosscher/gobase/model/modelutil"
+	"github.com/ntbosscher/gobase/model/squtil"
 	"github.com/ntbosscher/gobase/pqshared"
 	"github.com/pkg/errors"
 )
@@ -34,7 +35,7 @@ func init() {
 
 	DebugPrintJobStats = env.OptionalBool("PQWORKQUEUE_PRINT_JOB_STATS", false)
 	skipAll := env.OptionalBool("PQWORKQUEUE_SKIP_MIGRATE", false)
-	skipThis := env.Optional("PQWORKQUEUE_MIGRATION_LEVEL", "") == "2026-June-01"
+	skipThis := env.Optional("PQWORKQUEUE_MIGRATION_LEVEL", "") == "2026-July-24"
 
 	needsMigration := !skipAll
 	if skipThis {
@@ -59,10 +60,18 @@ func init() {
 			log.Fatal("failed to setup worker table: ", err)
 		}
 
-		_, err = pqshared.Pool.Exec(context.Background(), `alter table pq_worker_queue 
+		_, err = pqshared.Pool.Exec(context.Background(), `alter table pq_worker_queue
     		add column if not exists debounce_key text not null default '',
     		add column if not exists start_after timestamp not null default current_timestamp,
     		add column if not exists commit_error text null;`)
+		if err != nil {
+			log.Fatal("failed to setup worker table: ", err)
+		}
+
+		// Optional scoping fields for multi-tenant systems. Both are null for single-tenant setups.
+		_, err = pqshared.Pool.Exec(context.Background(), `alter table pq_worker_queue
+    		add column if not exists usr bigint null,
+    		add column if not exists company bigint null;`)
 		if err != nil {
 			log.Fatal("failed to setup worker table: ", err)
 		}
@@ -161,15 +170,20 @@ func (w *watcherInfo) processWork(queueName string) {
 				Logger.Println(input.Error, input.StackTrace)
 			})
 
-			defer done()
-			didWork := w.startWork(queueName, isolationLevel, callback, middleware, retainResultsFor, delayCallback, claimed)
-			if didWork {
+			// Release the concurrency slot (done()) BEFORE signalling. If we signalled first, the
+			// scheduler could re-check this queue, still see it at the concurrency limit (the slot
+			// not yet freed), skip it, and reset its fallback timer — leaving the freed slot's next
+			// job waiting up to FallbackCheckInterval. Freeing the slot first closes that race.
+			didWork := func() bool {
+				defer done()
+				return w.startWork(queueName, isolationLevel, callback, middleware, retainResultsFor, delayCallback, claimed)
+			}()
 
+			if didWork {
 				select {
 				case w.signal <- queueName:
 				default:
 				}
-
 			}
 		}()
 
@@ -296,11 +310,17 @@ func (w *watcherInfo) startWork(queueName string, isolationLevel sql.IsolationLe
 		}
 	}
 
+	// Accepted risk / connection budgeting: this outer transaction (claim -> run callback -> store
+	// result) stays open for the ENTIRE job, holding one pool connection the whole time, and the
+	// callback below runs in a SECOND transaction (WithTx2) on its own connection. So each in-flight
+	// job pins ~2 connections from pqshared.Pool. Size the pool accordingly:
+	// pool MaxConns >= 2 * (sum of NConcurrent across all queues) + headroom for the rest of the app,
+	// otherwise long-running jobs can starve the pool and stall the whole application.
 	err := model.WithTx(context.Background(), func(ctx context.Context, tx *sqlx.Tx) error {
 
-		id, message, err := getAndClaimJob(ctx, queueName)
+		meta, message, err := getAndClaimJob(ctx, queueName)
 		if err != nil {
-			if err != sql.ErrNoRows {
+			if !errors.Is(err, sql.ErrNoRows) {
 				Logger.Println("failed to get job:", err.Error())
 			}
 
@@ -329,7 +349,7 @@ func (w *watcherInfo) startWork(queueName string, isolationLevel sql.IsolationLe
 				exec = item(exec)
 			}
 
-			result = exec(ctx, id, message)
+			result = exec(ctx, message, meta)
 			return
 		})
 
@@ -354,7 +374,7 @@ func (w *watcherInfo) startWork(queueName string, isolationLevel sql.IsolationLe
 				retain_until = $3,
 				commit_error = $4
 			where id = $5
-		`, result, time.Now().UTC(), time.Now().UTC().Add(retainResultsFor), commitErr, id)
+		`, result, time.Now().UTC(), time.Now().UTC().Add(retainResultsFor), commitErr, meta.ID)
 
 		if err != nil {
 			Logger.Println("failed to store result:", err)
@@ -395,27 +415,38 @@ func checkValidCharacters(value []byte) string {
 	return string(out)
 }
 
-func getAndClaimJob(ctx context.Context, queueName string) (id string, message json.RawMessage, err error) {
+func getAndClaimJob(ctx context.Context, queueName string) (meta WorkerJobMeta, message json.RawMessage, err error) {
 
-	err = model.QueryRowContext(ctx, `
-		select id, job_arg
+	result := struct {
+		ID      string          `db:"id"`
+		JobArg  json.RawMessage `db:"job_arg"`
+		Usr     nulls.Int       `db:"usr"`
+		Company nulls.Int       `db:"company"`
+	}{}
+
+	err = model.GetContext(ctx, &result, `
+		select id, job_arg, usr, company
 		from pq_worker_queue
-		where queue_name = $1 and start_after <= $2 and started_at is null 
+		where queue_name = $1 and start_after <= $2 and started_at is null
 		order by start_after
 		for update skip locked
 		limit 1
-	`, queueName, time.Now().UTC()).Scan(&id, &message)
+	`, queueName, time.Now().UTC())
 
 	if err != nil {
 		return
 	}
 
-	err = model.ExecContext(ctx, `update pq_worker_queue set started_at = $1 where id = $2`, time.Now().UTC(), id)
+	err = model.ExecContext(ctx, `update pq_worker_queue set started_at = $1 where id = $2`, time.Now().UTC(), result.ID)
 	if err != nil {
 		return
 	}
 
-	return
+	return WorkerJobMeta{
+		ID:      result.ID,
+		User:    result.Usr,
+		Company: result.Company,
+	}, result.JobArg, nil
 }
 
 func (w *watcherInfo) addNewListeners() {
@@ -488,12 +519,17 @@ func (w *watcherInfo) getPredictedStart() (time.Time, string, bool) {
 
 	var validNames []string
 	var busyNames []string
+
+	queueConds := squirrel.Or{}
+
 	for name, lInfo := range w.listeningFor {
-		if !lInfo.isAtConcurrencyLimit() {
-			validNames = append(validNames, name)
-		} else {
+		if lInfo.isAtConcurrencyLimit() {
 			busyNames = append(busyNames, name)
+			continue
 		}
+
+		validNames = append(validNames, name)
+		queueConds = append(queueConds, squirrel.Eq{"queue_name": name})
 	}
 
 	if len(validNames) == 0 {
@@ -505,15 +541,17 @@ func (w *watcherInfo) getPredictedStart() (time.Time, string, bool) {
 		return time.Time{}, "", false
 	}
 
+	qr := model.Builder.
+		Select("queue_name", "min(start_after) as start_after").
+		From("pq_worker_queue").
+		Where(squirrel.Eq{"started_at": nil}).
+		Where(queueConds).
+		GroupBy("queue_name").
+		OrderBy("min(start_after) asc").
+		Limit(1)
+
 	err := model.WithTx(ctx, func(ctx context.Context, tx *sqlx.Tx) error {
-		return model.GetContext(ctx, info, `
-			select queue_name, min(start_after) "start_after"
-			from pq_worker_queue 
-			where started_at is null and queue_name = any ($1)
-			group by queue_name
-			order by min(start_after) asc
-			limit 1
-		`, modelutil.PqArray(validNames))
+		return squtil.GetContext(ctx, info, qr)
 	})
 
 	if err != nil {
@@ -571,6 +609,13 @@ func cleaner() {
 		Logger.Println(input.Error, input.StackTrace)
 	})
 
+	// Accepted risk: cleanup only removes rows once retain_until has passed, and retain_until is set
+	// only when a job completes. Rows that never complete are intentionally left in place and are NOT
+	// garbage collected here:
+	//   - jobs enqueued for a queue that has no registered worker (nothing ever claims them), and
+	//   - poison jobs that repeatedly fail to commit (started_at rolls back, so they stay claimable).
+	// These accumulate rather than disappear, which is deliberate so they remain visible for
+	// debugging; monitor pq_worker_queue size if this becomes a concern.
 	tc := time.NewTicker(1 * time.Minute)
 
 	for range tc.C {
@@ -592,9 +637,21 @@ func cleaner() {
 	}
 }
 
+// WorkerJobMeta
+// Multi-tenancy note: workers are shared between tenants (a single worker/queue processes jobs
+// for everyone). Tenant isolation is not at the worker level — instead, job submission and results
+// CAN be filtered by user and/or company: set User/Company on the AddOption(2) when enqueuing, and
+// pass User/Company to GetStatus to scope reads. The job's User/Company are handed to the worker
+// callback via WorkerJobMeta so it can enforce any per-tenant logic itself.
+type WorkerJobMeta struct {
+	ID      string
+	User    nulls.Int
+	Company nulls.Int
+}
+
 // Worker processes the job and can return a byte slice to be stored as a result
 // Note: ctx is executed within a model.Tx
-type Worker = func(ctx context.Context, id string, input json.RawMessage) []byte
+type Worker = func(ctx context.Context, input json.RawMessage, meta WorkerJobMeta) []byte
 type Middleware = func(next Worker) Worker
 
 // NewWorkerGroup created a new group of workers to process the queue
@@ -670,48 +727,72 @@ func (w *WorkerInfo) concurrencyCheck() (cancel func(), ok bool) {
 }
 
 type Status struct {
-	ID          string
-	Position    int
-	CreatedAt   time.Time
-	StartedAt   nulls.Time
-	CompletedAt nulls.Time
+	ID          string     `db:"id"`
+	Position    int        `db:"position"`
+	CreatedAt   time.Time  `db:"created_at"`
+	StartedAt   nulls.Time `db:"started_at"`
+	CompletedAt nulls.Time `db:"completed_at"`
+
+	// User and Company are the optional multi-tenant scoping fields set when the job was added.
+	// Both are invalid (null) for single-tenant jobs.
+	User    nulls.Int `db:"user"`
+	Company nulls.Int `db:"company"`
 }
 
-func GetStatus(ctx context.Context, id string) (*Status, error) {
+type GetStatusInput struct {
+	ID string
 
-	queue := ""
-	err := model.GetContext(ctx, &queue, `select queue_name from pq_worker_queue where id = $1`, id)
-	if err != nil {
-		return nil, err
-	}
+	User    nulls.Int
+	Company nulls.Int
+}
+
+func GetStatus(ctx context.Context, input GetStatusInput) (*Status, error) {
 
 	status := &Status{}
-	err = model.GetContext(ctx, status, `
-		select 
-			id,
+	err := model.GetContext(ctx, status, `
+		select
+			r.id,
 			coalesce(rnk.position, 0) as "position",
-			created_at, started_at, completed_at
+			r.created_at, r.started_at, r.completed_at,
+			r.usr as "user", r.company
 		from pq_worker_queue r
-		left join (
-			select position
+		left join lateral (
+			select rk.position
 			from (
 				select
 					id,
 					rank() over (order by created_at) as position
 				from pq_worker_queue
-				where queue_name = $1 and started_at is null
+				where queue_name = r.queue_name and started_at is null
 			) rk
-			where rk.id = $2
-		) rnk on 1=1
-		where id = $2
-	`, queue, id)
+			where rk.id = r.id
+		) rnk on true
+		where r.id = $1
+			and ($2::bigint is null or r.usr = $2::bigint)
+			and ($3::bigint is null or r.company = $3::bigint)
+	`, input.ID, input.User, input.Company)
 
 	return status, err
 }
 
-func GetResult(ctx context.Context, id string) ([]byte, error) {
+type GetResultInput struct {
+	ID string
+
+	// User and Company optionally scope the read to a tenant, mirroring GetStatus. Leave zero
+	// (invalid) for single-tenant setups.
+	User    nulls.Int
+	Company nulls.Int
+}
+
+func GetResult(ctx context.Context, input GetResultInput) ([]byte, error) {
 	result := []byte{}
-	err := model.QueryRowContext(ctx, `select result from pq_worker_queue where id = $1`, id).Scan(&result)
+	err := model.QueryRowContext(ctx, `
+		select result
+		from pq_worker_queue
+		where id = $1
+			and ($2::bigint is null or usr = $2::bigint)
+			and ($3::bigint is null or company = $3::bigint)
+	`, input.ID, input.User, input.Company).Scan(&result)
 	return result, err
 }
 
@@ -749,7 +830,7 @@ func (q *Queue) MustAdd(ctx context.Context, arg interface{}) string {
 // arg must be json-encodable
 // The item will be added using the model package, so it is transaction safe
 func (q *Queue) Add(ctx context.Context, arg interface{}) (string, error) {
-	return q.add(ctx, time.Now().UTC(), "", true, nil, arg)
+	return q.add(ctx, time.Now().UTC(), "", true, nil, nulls.Int{}, nulls.Int{}, arg)
 }
 
 func (q *Queue) MustAddOpt(ctx context.Context, arg interface{}, opts *AddOption) string {
@@ -776,13 +857,21 @@ type AddOption struct {
 	DebounceKeepOriginalStart bool
 
 	DebounceMerge func(a []byte, b []byte) ([]byte, error)
+
+	// User optionally scopes the job to a user for multi-tenant systems.
+	// Leave zero (invalid) for single-tenant setups.
+	User nulls.Int
+
+	// Company optionally scopes the job to a company/tenant for multi-tenant systems.
+	// Leave zero (invalid) for single-tenant setups.
+	Company nulls.Int
 }
 
 func (q *Queue) AddOpt(ctx context.Context, arg interface{}, opts *AddOption) (string, error) {
-	return q.add(ctx, opts.StartAfter, opts.DebounceKey, opts.DebounceKeepOriginalStart, opts.DebounceMerge, arg)
+	return q.add(ctx, opts.StartAfter, opts.DebounceKey, opts.DebounceKeepOriginalStart, opts.DebounceMerge, opts.User, opts.Company, arg)
 }
 
-func (q *Queue) add(ctx context.Context, startAfter time.Time, debounceKey string, keepOriginalStart bool, debounceMerge func(a []byte, b []byte) ([]byte, error), arg interface{}) (string, error) {
+func (q *Queue) add(ctx context.Context, startAfter time.Time, debounceKey string, keepOriginalStart bool, debounceMerge func(a []byte, b []byte) ([]byte, error), user nulls.Int, company nulls.Int, arg interface{}) (string, error) {
 	msg, err := json.Marshal(arg)
 	if err != nil {
 		return "", errors.Wrap(err, "failed to json-encode work-queue arg")
@@ -807,11 +896,11 @@ func (q *Queue) add(ctx context.Context, startAfter time.Time, debounceKey strin
 
 	if debounceKey == "" {
 		err = model.ExecContext(ctx, `
-			insert into pq_worker_queue (id, queue_name, job_arg, created_at, start_after, debounce_key) 
-			values ($1, $2, $3, $4, $5, $6)
+			insert into pq_worker_queue (id, queue_name, job_arg, created_at, start_after, debounce_key, usr, company)
+			values ($1, $2, $3, $4, $5, $6, $7, $8)
 		`,
 			uuidId.String(), q.name, msg, time.Now().UTC(),
-			startAfter, debounceKey,
+			startAfter, debounceKey, user, company,
 		)
 
 		return uuidId.String(), err
@@ -836,15 +925,15 @@ func (q *Queue) add(ctx context.Context, startAfter time.Time, debounceKey strin
 			    limit 1
 			    for update skip locked
 			), new as (
-			    insert into pq_worker_queue (id, queue_name, job_arg, created_at, start_after, debounce_key) 
-				select $1, $2, $3, $4, $5, $6
+			    insert into pq_worker_queue (id, queue_name, job_arg, created_at, start_after, debounce_key, usr, company)
+				select $1, $2, $3, $4, $5, $6, $7, $8
 				where (select count(*) from existing) = 0
 			)
 			select id, job_arg, start_after
 			from existing
 		`,
 			uuidId.String(), q.name, msg, time.Now().UTC(),
-			startAfter, debounceKey,
+			startAfter, debounceKey, user, company,
 		)
 
 		if err != nil {
@@ -888,8 +977,8 @@ func (q *Queue) add(ctx context.Context, startAfter time.Time, debounceKey strin
 			    limit 1
 			    for update skip locked
 			), new as (
-			    insert into pq_worker_queue (id, queue_name, job_arg, created_at, start_after, debounce_key)
-				select $1, $2, $3, $4, $5, $6
+			    insert into pq_worker_queue (id, queue_name, job_arg, created_at, start_after, debounce_key, usr, company)
+				select $1, $2, $3, $4, $5, $6, $7, $8
 				where (select count(*) from existing) = 0
 				returning id
 			)
@@ -898,7 +987,7 @@ func (q *Queue) add(ctx context.Context, startAfter time.Time, debounceKey strin
 			select id from new
 		`,
 			uuidId.String(), q.name, msg, time.Now().UTC(),
-			startAfter, debounceKey,
+			startAfter, debounceKey, user, company,
 		)
 	} else {
 		err = model.GetContext(ctx, &resultID, `
@@ -909,13 +998,13 @@ func (q *Queue) add(ctx context.Context, startAfter time.Time, debounceKey strin
 			    limit 1
 			    for update skip locked
 			), new as (
-			    insert into pq_worker_queue (id, queue_name, job_arg, created_at, start_after, debounce_key)
-				select $1, $2, $3, $4, $5, $6
+			    insert into pq_worker_queue (id, queue_name, job_arg, created_at, start_after, debounce_key, usr, company)
+				select $1, $2, $3, $4, $5, $6, $7, $8
 				where (select count(*) from existing) = 0
 				returning id
 			), upd as (
 			    update pq_worker_queue
-			    set start_after = $5
+			    set start_after = $5, job_arg = $3
 				from existing
 				where existing.id = pq_worker_queue.id
 				returning pq_worker_queue.id
@@ -925,7 +1014,7 @@ func (q *Queue) add(ctx context.Context, startAfter time.Time, debounceKey strin
 			select id from new
 		`,
 			uuidId.String(), q.name, msg, time.Now().UTC(),
-			startAfter, debounceKey,
+			startAfter, debounceKey, user, company,
 		)
 	}
 

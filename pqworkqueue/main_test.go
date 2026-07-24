@@ -21,7 +21,7 @@ func TestBasic(t *testing.T) {
 
 	StartWorkers(&WorkerInfo{
 		QueueName: "test-queue",
-		Callback: func(ctx context.Context, id string, input json.RawMessage) []byte {
+		Callback: func(ctx context.Context, input json.RawMessage, _ WorkerJobMeta) []byte {
 			info := ""
 			err := json.Unmarshal(input, &info)
 			if err != nil {
@@ -71,7 +71,7 @@ func TestBasic(t *testing.T) {
 	for range tc.C {
 		var status *Status
 		er.Check(model.WithTx(context.Background(), func(ctx context.Context, tx *sqlx.Tx) error {
-			status, err = GetStatus(ctx, id)
+			status, err = GetStatus(ctx, GetStatusInput{ID: id})
 			return err
 		}))
 
@@ -80,7 +80,7 @@ func TestBasic(t *testing.T) {
 			var data []byte
 
 			er.Check(model.WithTx(context.Background(), func(ctx context.Context, tx *sqlx.Tx) error {
-				data, err = GetResult(ctx, id)
+				data, err = GetResult(ctx, GetResultInput{ID: id})
 				return err
 			}))
 

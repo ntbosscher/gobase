@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/gobuffalo/nulls"
 	"github.com/ntbosscher/gobase/er"
 )
 
@@ -27,6 +28,14 @@ type AddOption2[T any] struct {
 	DebounceKeepOriginalStart bool
 
 	DebounceMerge func(a T, b T) (T, error)
+
+	// User optionally scopes the job to a user for multi-tenant systems.
+	// Leave zero (invalid) for single-tenant setups.
+	User nulls.Int
+
+	// Company optionally scopes the job to a company/tenant for multi-tenant systems.
+	// Leave zero (invalid) for single-tenant setups.
+	Company nulls.Int
 }
 
 type Queue2[T any] struct {
@@ -57,7 +66,13 @@ func (q *Queue2[T]) RegisterWorker(concurrent int, callback callbackFx[T], updat
 	config := &WorkerInfo{
 		QueueName:   q.name,
 		NConcurrent: concurrent,
-		Callback: func(ctx context.Context, id string, input json.RawMessage) (out []byte) {
+		// The worker owns its transaction (the ctx passed to `callback` is inside a model tx). If the
+		// callback panics, we recover it here and record the error as the job's result — the job is
+		// marked complete and is NOT retried. Because the panic is recovered here (rather than
+		// propagating out to roll back the tx), any work the callback committed, or wrote before
+		// panicking, stays committed. It's the worker's responsibility to keep its own transaction
+		// consistent (e.g. roll back explicitly on partial failure) if that matters.
+		Callback: func(ctx context.Context, input json.RawMessage, _ WorkerJobMeta) (out []byte) {
 			defer er.HandleErrors(func(input *er.HandlerInput) {
 				// Full details are logged server-side under a correlation id;
 				// the persisted result (readable via GetResult) carries only the
@@ -118,5 +133,7 @@ func (q *Queue2[T]) convertOpt(opt *AddOption2[T]) *AddOption {
 		DebounceKey:               opt.DebounceKey,
 		DebounceKeepOriginalStart: opt.DebounceKeepOriginalStart,
 		DebounceMerge:             debounceMerge,
+		User:                      opt.User,
+		Company:                   opt.Company,
 	}
 }
