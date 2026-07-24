@@ -1,7 +1,5 @@
 # Upgrading gobase
 
-Security-hardening changes between `2cb8487` (2026-06-24) and `HEAD` (2026-07-23).
-
 This is a guide for **projects that import `github.com/ntbosscher/gobase`**. It tells you what
 to fix when you bump the version. Every entry is tagged:
 
@@ -9,13 +7,183 @@ to fix when you bump the version. Every entry is tagged:
 - **`[behavior]`** — same signature, different runtime behavior. Compiles fine, acts differently.
   These are the dangerous ones — read them.
 
+It covers two upgrade windows, newest first:
+
+- [**`v0.8.0` → `v0.9.0`**](#v080--v090) — per-client rate limiting, request/websocket DoS caps,
+  pqworkqueue multi-tenancy (has `[compile]` breaks), and further error-disclosure tightening.
+- [**`2cb8487` (pre-`v0.8.0`) → `v0.8.0`**](#v080-and-earlier-2cb8487--v080) — the original
+  security-hardening pass.
+
 Regenerate the raw diff for any package with:
 
 ```bash
-git diff 2cb84875666997b4683acc1cef3b441b2fbe8ae3..HEAD -- <path>
+git diff v0.8.0..HEAD -- <path>          # the v0.9.0 window
+git diff 2cb8487..v0.8.0 -- <path>       # the earlier window
 ```
 
 ---
+
+# `v0.8.0` → `v0.9.0`
+
+## TL;DR — do these before you ship
+
+**Won't compile until fixed:**
+
+1. **`pqworkqueue` worker/read signatures changed** for multi-tenancy. The `Worker` callback is now
+   `func(ctx, input, meta WorkerJobMeta)` (the old `id string` param is gone — the id is on
+   `meta.ID`), and `GetStatus`/`GetResult` take input structs instead of a bare id. See
+   [pqworkqueue](#pqworkqueue).
+
+**Compiles, but will bite silently — verify each:**
+
+2. **All request bodies are now capped at 64 MB** (`res.MaxRequestBodySize`). Handlers that accept
+   larger uploads must raise or disable it, or reads start failing. See [res](#res).
+3. **`r.RateLimit` / `r.RateLimitErr` now bucket per-client-IP, not globally.** Correct keying
+   requires the `requestip.Middleware` (with a trust policy) to be installed; without it every caller
+   collapses to the raw peer address. See [res / ratelimit](#res).
+4. **Login now enforces per-IP (10/min) and per-username (5/15min) throttles by default.** Failed
+   logins return 429 once a bucket empties. Tune or disable via `Config.LoginPerIP*` /
+   `LoginPerUsername*`. See [auth/httpauth](#authhttpauth).
+5. **Websocket connections are now capped** (`MaxConcurrentWebSockets = 1024`,
+   `MaxWebSocketMessageBytes = 1 MB`). Excess upgrades get 503; oversize frames close the connection.
+   See [res/websocket](#reswebsocket).
+6. **More error text is now redacted from clients.** `res.Error(err)` logs server-side and returns a
+   generic message; auth login/refresh/not-authorized responses no longer echo the underlying reason.
+   Update any client/test asserting on those bodies. See [res](#res) and [auth/httpauth](#authhttpauth).
+7. **`pqworkqueue` auto-migrates on init**, adding nullable `usr` / `company` columns. Single-tenant
+   callers need no code change but the DDL runs at startup. See [pqworkqueue](#pqworkqueue).
+
+---
+
+## res
+
+- **[behavior]** — New `MaxRequestBodySize` (default **64 MB**) caps the total bytes any handler can
+  read from a request body, enforced at the router entry and again in `WrapHTTPFunc` via
+  `http.MaxBytesReader`. This is separate from `MultipartMaxFormSize` (which only bounds the
+  in-memory multipart buffer).
+  - Why: without a whole-body cap, an upload can exhaust disk and `io.ReadAll`-style handlers are
+    exposed to size/decompression DoS.
+  - Fix: no change for normal traffic. Endpoints that legitimately accept larger bodies must raise
+    `res.MaxRequestBodySize` (or set it to `0` to disable) **during setup, before serving traffic**.
+    Over-limit reads fail through the normal handler/panic path.
+
+- **[behavior]** — `r.RateLimit` / `r.RateLimitErr` (in `res/r`) switched from a single global
+  `ratelimit.New` bucket to per-client `ratelimit.NewKeyed`, keyed via
+  `requestip.KeyFromRequest(ctx, RemoteAddr)`.
+  - Why: one shared bucket meant any client could exhaust the limit for everyone.
+  - Fix: install `requestip.Middleware(<trust policy>)` so the key is the real client IP. Without it,
+    keying falls back to the raw `RemoteAddr` — behind a proxy that can collapse every caller to one
+    key (still per-route, but not per-client). Signatures are unchanged.
+
+- **[behavior]** — `res.Error(err)` now follows the panic-handler disclosure policy: it logs
+  `err` to `er.ErrorLog` and returns `er.GenericErrorMessage` to the client, unless
+  `er.ReturnErrorMessageToClient` is set (dev). A nil error yields the generic message instead of
+  nil-panicking.
+  - Fix: any frontend/test that read the raw error text from an `res.Error(...)` response now sees the
+    generic message. To pass detail through, set `er.ReturnErrorMessageToClient = true`.
+
+- **[behavior]** — `Content-Disposition` headers (`Download` / `Display`) are now RFC 6266/5987
+  compliant: the ASCII `filename` is stripped of control bytes (incl. CR/LF), quotes, backslashes and
+  commas, and a `filename*=UTF-8''…` parameter is added for non-ASCII names. `SanitizeDispositionName`
+  now removes more than just commas.
+  - Fix: no code change. Downloaded filenames may differ slightly (control/quote chars removed;
+    non-ASCII now preserved via `filename*`). Only relevant if you byte-compared the header.
+
+## auth/httpauth
+
+- **[behavior]** — The login endpoint now has two on-by-default throttles that consume a token only on
+  **failed** logins:
+  - per-IP: `LoginPerIPRateLimitCount` / `Window` — default **10 / minute**.
+  - per-username: `LoginPerUsernameRateLimitCount` / `Window` — default **5 / 15 min** (normalized
+    lowercased/trimmed username).
+
+    Once a bucket empties, further attempts get `429 Too Many Requests` until it refills.
+  - Why: throttles online credential-stuffing (per-IP) and distributed low-and-slow brute force
+    against one account (per-username).
+  - Fix: verify the defaults suit your login flow; raise the counts/windows if legitimate users hit
+    them, or set `LoginPerIPRateLimitDisabled` / `LoginPerUsernameRateLimitDisabled`. The per-IP key
+    comes from `requestip` — install `requestip.Middleware` for accurate keying behind a proxy.
+
+- **[behavior]** — Auth errors are no longer echoed to the client. `notAuthorizedResponder` logs the
+  reason to `er.ErrorLog` and returns a bare `NotAuthorized()`; `refreshHandler` returns
+  `"Access denied"` (was `"Access denied: " + err`); `loginHandler` returns `"Login failed"` /
+  `"Invalid request"` (was the raw credential-checker / parse error). Access-token creation failures
+  now route through `res.Error`.
+  - Why: the old messages could distinguish "no such user" vs "bad password" and leak internal detail.
+  - Fix: update any client/test asserting on the specific auth failure text; use `er.ErrorLog` (with
+    the correlation id) to find the real reason. Set `NotAuthorizedResponder` for a custom message.
+
+## res/websocket
+
+- **[behavior]** — Two new process-wide DoS caps, read at connection setup:
+  - `MaxConcurrentWebSockets` (default **1024**) — once reached, further upgrades are rejected with
+    `503 Service Unavailable` until a slot frees. Set `0` to disable.
+  - `MaxWebSocketMessageBytes` (default **1 MB**) — a larger inbound frame closes the connection (via
+    `conn.SetReadLimit`). Set `0` to disable.
+  - Fix: raise these if your app legitimately runs many concurrent sockets or exchanges larger
+    messages; otherwise no change. The slot is released exactly once on connection close.
+
+- **[docs]** — Clarified that `Router.WebSocket` registers the endpoint with **no auth/role
+  middleware** — the handler must authenticate/authorize the connection itself before doing work. No
+  behavior change, but audit your socket handlers to confirm they enforce this.
+
+## pdfprinter/pdfprinter2/ssrfproxy
+
+- **[behavior]** — `ssrfproxy.IsBlockedIP` now **allows loopback** (`127.0.0.0/8`, `::1`) when
+  `env.IsTesting` (`TEST=true`), so tests can render against a local `httptest` server. Private,
+  link-local, cloud-metadata, and CGNAT ranges stay blocked even under test.
+  - Fix: none in production. **Never set `TEST=true` in an environment that renders untrusted HTML** —
+    it re-opens loopback egress.
+
+## pqworkqueue
+
+- **[compile]** — The `Worker` callback signature changed for multi-tenancy:
+  ```go
+  // before
+  type Worker = func(ctx context.Context, id string, input json.RawMessage) []byte
+  // after — id moved onto meta.ID; meta also carries the job's User/Company
+  type Worker = func(ctx context.Context, input json.RawMessage, meta WorkerJobMeta) []byte
+  ```
+  - Fix: update every `WorkerInfo.Callback` (raw API). `Queue2.RegisterWorker` callbacks
+    (`func(ctx, arg T) []byte`) are unaffected — the wrapper absorbs the new signature.
+
+- **[compile]** — `GetStatus` and `GetResult` now take input structs instead of a bare id:
+  ```go
+  // before
+  GetStatus(ctx, id)          //  (*Status, error)
+  GetResult(ctx, id)          //  ([]byte, error)
+  // after
+  GetStatus(ctx, GetStatusInput{ID: id})   // optional User/Company to scope the read
+  GetResult(ctx, GetResultInput{ID: id})   // optional User/Company to scope the read
+  ```
+  - Fix: wrap the id in the input struct. For multi-tenant callers, also pass `User` / `Company` so a
+    tenant can't read another tenant's status/result by id.
+
+- **[behavior]** — On package init, `pqworkqueue` auto-migrates `pq_worker_queue`, adding nullable
+  `usr bigint` / `company bigint` columns (idempotent `add column if not exists`). Enqueue via
+  `AddOption{User, Company}` / `AddOption2[T]{User, Company}`; both stay null for single-tenant setups.
+  Set `PQWORKQUEUE_SKIP_MIGRATE=true` to skip the DDL if you manage schema yourself.
+  - Note: workers are still shared across tenants — isolation is advisory (the callback receives
+    `meta.User/Company` and must enforce any per-tenant logic itself).
+
+- **[behavior]** — A dispatch race was fixed so a freed concurrency slot no longer risks waiting up to
+  `FallbackCheckInterval` for its next job. No API change; queues just drain more promptly.
+
+- **[behavior]** — Debounce without a merge func, with `DebounceKeepOriginalStart=false`, now updates
+  the stored `job_arg` to the newest payload (in addition to `start_after`). Previously the newest
+  arg was dropped and only the schedule moved. If you relied on the first payload winning, set
+  `DebounceKeepOriginalStart=true` or supply a `DebounceMerge`.
+
+- **[docs]** — A panic inside a `Queue2.RegisterWorker` callback is recovered, recorded as the job's
+  result, and the job is marked **complete and not retried** — and because the panic is caught inside
+  the worker's own transaction, any DB work it committed (or wrote before panicking) stays committed.
+  Unchanged behavior, now documented: keep your worker transaction consistent yourself.
+
+---
+
+# `v0.8.0` and earlier (`2cb8487` → `v0.8.0`)
+
+The original security-hardening pass, between `2cb8487` (2026-06-24) and `v0.8.0` (2026-07-23).
 
 ## TL;DR — do these before you ship
 
@@ -29,7 +197,7 @@ git diff 2cb84875666997b4683acc1cef3b441b2fbe8ae3..HEAD -- <path>
 **Compiles, but will bite silently — verify each:**
 
 3. **All existing auth sessions are invalidated on deploy.** Tokens are now type-bound (`typ` claim);
-   pre-upgrade tokens have no `typ` and are rejected. Every user must re-login. See [auth/httpauth](#authhttpauth).
+   pre-upgrade tokens have no `typ` and are rejected. Every user must re-login. See [auth/httpauth](#authhttpauth-1).
 4. **CORS will start rejecting origins** that were bare hostnames or prefixes. Convert
    `AllowOrigins` entries to full origins or `*.`-wildcards. See [cors](#cors).
 5. **`UNIT_TEST=true` no longer forces test mode.** Non-test binaries now boot strict — a missing
@@ -41,7 +209,7 @@ git diff 2cb84875666997b4683acc1cef3b441b2fbe8ae3..HEAD -- <path>
 8. **PDF rendering now blocks SSRF egress and enforces size/timeout/concurrency limits.** Templates
    loading internal subresources will fail; high-concurrency callers must queue. See [pdfprinter](#pdfprinter--pdfprinter2).
 9. **New auth cookie defaults:** `SameSite=Lax` and access cookie is `HttpOnly`. Cross-site cookie
-   flows and any JS reading the access token break. See [auth/httpauth](#authhttpauth).
+   flows and any JS reading the access token break. See [auth/httpauth](#authhttpauth-1).
 10. **`currency.Parse` now parses negatives correctly** (`"-5.50"` → `-550`, was `-450`). Re-check any
     stored/derived values. See [currency](#currency).
 
