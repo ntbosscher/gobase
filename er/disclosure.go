@@ -35,7 +35,8 @@ var GenericErrorMessage = "An unexpected error occurred"
 // Policy:
 //   - always: log correlationID + raw message + stack trace to ErrorLog
 //   - dev mode (env.IsTesting): clientMessage = raw message, clientStack = full stack
-//   - else if ReturnErrorMessageToClient: clientMessage = raw message, clientStack = ""
+//   - else if input.ClientSafeMessage (see ThrowClientSafe) or ReturnErrorMessageToClient:
+//     clientMessage = raw message, clientStack = ""
 //   - else: clientMessage = GenericErrorMessage, clientStack = ""
 func SafeError(input *HandlerInput) *SafeErrorObj {
 	correlationID := newCorrelationID()
@@ -51,7 +52,7 @@ func SafeError(input *HandlerInput) *SafeErrorObj {
 		}
 	}
 
-	if ReturnErrorMessageToClient {
+	if input.ClientSafeMessage || ReturnErrorMessageToClient {
 		return &SafeErrorObj{
 			CorrelationID: correlationID,
 			ClientMessage: input.Message,
