@@ -197,12 +197,12 @@ func JsonErrorResult(input *er.HandlerInput) []byte {
 	// Disclosure policy (log full details server-side under a correlation id,
 	// generic message + empty stack to the consumer by default, full detail in
 	// dev mode) is shared across the framework — see er.SafeError.
-	correlationID, message, stackTrace := er.SafeError(input)
+	safe := er.SafeError(input)
 
 	content, _ := res.GetJSONInstance().Marshal(map[string]interface{}{
-		"error":         message,
-		"detail":        stackTrace,
-		"correlationId": correlationID,
+		"error":         safe.Error(),
+		"detail":        safe.ClientStack,
+		"correlationId": safe.CorrelationID,
 	})
 
 	return content

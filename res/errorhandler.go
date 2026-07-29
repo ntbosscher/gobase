@@ -10,18 +10,17 @@ import (
 // framework and lives in the er package — see er.SafeError, er.ErrorLog,
 // er.ReturnErrorMessageToClient and er.GenericErrorMessage.
 func handlePanic(input *er.HandlerInput) *responder {
-	correlationID, message, stackTrace := er.SafeError(input)
+	safe := er.SafeError(input)
 
 	return &responder{
 		status: input.SuggestedHttpCode,
 		data: map[string]interface{}{
 			// input.Details comes from ErrorWithDetailsForClient and is
 			// client-safe by design, so it's always passed through.
-			"error":         message,
-			"message":       "",
-			"stackTrace":    stackTrace,
+			"error":         safe.Error(),
+			"stackTrace":    safe.ClientStack,
 			"details":       input.Details,
-			"correlationId": correlationID,
+			"correlationId": safe.CorrelationID,
 		},
 	}
 }

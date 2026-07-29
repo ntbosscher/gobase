@@ -77,11 +77,11 @@ func (q *Queue2[T]) RegisterWorker(concurrent int, callback callbackFx[T], updat
 				// Full details are logged server-side under a correlation id;
 				// the persisted result (readable via GetResult) carries only the
 				// safe view by default. See er.SafeError.
-				correlationID, message, stackTrace := er.SafeError(input)
+				safe := er.SafeError(input)
 				out, _ = json.Marshal(map[string]interface{}{
-					"error":         message,
-					"stack":         stackTrace,
-					"correlationId": correlationID,
+					"error":         safe.Error(),
+					"stack":         safe.ClientStack,
+					"correlationId": safe.CorrelationID,
 				})
 			})
 

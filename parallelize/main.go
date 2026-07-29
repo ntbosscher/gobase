@@ -33,13 +33,9 @@ func handler(done chan info, index int, tsk func() error) {
 		// Full details are logged server-side under a correlation id; the
 		// returned error carries only the safe view (no stack trace outside dev
 		// mode). See er.SafeError.
-		correlationID, message, stackTrace := er.SafeError(input)
-		msg := message + " (ref " + correlationID + ")"
-		if stackTrace != "" {
-			msg += " " + stackTrace
-		}
+		safe := er.SafeError(input)
 
-		done <- info{Index: index, Error: errors.New(msg)}
+		done <- info{Index: index, Error: safe}
 	})
 
 	err := tsk()
