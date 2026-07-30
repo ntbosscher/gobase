@@ -210,3 +210,16 @@ func ThrowClientSafeCode(code int, message string) {
 func ThrowClientSafef(format string, args ...any) {
 	ThrowClientSafeCode(http.StatusBadRequest, fmt.Sprintf(format, args...))
 }
+
+// ClientSafe returns an error whose message SafeError always surfaces to the
+// consumer, regardless of ReturnErrorMessageToClient. Unlike ThrowClientSafe it
+// returns the error instead of panicking, so it can be passed to er.Check or
+// returned from a decoder/calculator.
+func ClientSafe(message string) error {
+	return &clientSafeMessageErr{value: message}
+}
+
+// ClientSafef is ClientSafe with a fmt.Sprintf-style message.
+func ClientSafef(format string, args ...any) error {
+	return ClientSafe(fmt.Sprintf(format, args...))
+}
