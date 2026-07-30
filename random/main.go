@@ -46,6 +46,18 @@ func randomString(length int, charset string) (string, error) {
 	return string(b), nil
 }
 
+func GetNumericChars(length int) (string, error) {
+	return randomString(length, "0123456789")
+}
+
+func GetHexChars(length int) (string, error) {
+	return randomString(length, "0123456789abcdef")
+}
+
+func GetLowerAlphaNumericChars(length int) (string, error) {
+	return randomString(length, "0123456789abcdefghijklmnopqrstuvwxyz")
+}
+
 func GetAlphaNumericChars(length int) (string, error) {
 	return randomString(length, "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 }

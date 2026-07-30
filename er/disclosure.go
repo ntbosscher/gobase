@@ -27,6 +27,33 @@ var ReturnErrorMessageToClient = false
 // mode.
 var GenericErrorMessage = "An unexpected error occurred"
 
+// CorrelationKindType selects the character set used for the random part of a
+// correlation id.
+type CorrelationKindType int
+
+const (
+	// CorrelationNumbers uses digits only (0-9), e.g. "trace-482910".
+	CorrelationNumbers CorrelationKindType = iota
+	// CorrelationHex uses lowercase hexadecimal (0-9a-f), e.g. "trace-39a93f".
+	CorrelationHex
+	// CorrelationLowerAlphaNumeric uses lowercase letters + digits (0-9a-z).
+	CorrelationLowerAlphaNumeric
+	// CorrelationAlphaNumeric uses case-sensitive letters + digits (0-9a-zA-Z).
+	CorrelationAlphaNumeric
+)
+
+// CorrelationPrefix is prepended to the random part of every correlation id.
+// Defaults to "trace-" so ids look like "trace-39a93f".
+var CorrelationPrefix = "trace-"
+
+// CorrelationKind selects the character set for the random part of a
+// correlation id. Defaults to CorrelationHex.
+var CorrelationKind = CorrelationHex
+
+// CorrelationLength is the number of random characters in a correlation id
+// (excluding CorrelationPrefix). Defaults to 6.
+var CorrelationLength = 6
+
 // SafeError logs the full details of a recovered error server-side (keyed by a
 // fresh correlation id via ErrorLog) and returns a *SafeErrorObj holding only
 // what is safe to surface to the consumer: the correlation id, a client-facing
@@ -72,11 +99,11 @@ type SafeErrorObj struct {
 }
 
 func (s *SafeErrorObj) Error() string {
-	return fmt.Sprintf("[%s] %s", s.CorrelationID, s.ClientMessage)
+	return fmt.Sprintf("%s %s", s.ClientMessage, s.CorrelationID)
 }
 
 func (s *SafeErrorObj) ExtError() string {
-	return fmt.Sprintf("[%s] %s\n%s", s.CorrelationID, s.ClientMessage, s.ClientStack)
+	return fmt.Sprintf("%s [%s]\n%s", s.ClientMessage, s.CorrelationID, s.ClientStack)
 }
 
 func (s *SafeErrorObj) String() string {
@@ -86,10 +113,25 @@ func (s *SafeErrorObj) String() string {
 func newCorrelationID() string {
 	// crypto/rand backed; on the (extremely unlikely) failure path, avoid
 	// panicking inside an error handler.
-	id, err := random.GetAlphaNumericChars(12)
+	id, err := randomCorrelationChars(CorrelationKind, CorrelationLength)
 	if err != nil {
-		return "unknown"
+		return CorrelationPrefix + "unknown"
 	}
 
-	return id
+	return CorrelationPrefix + id
+}
+
+func randomCorrelationChars(kind CorrelationKindType, length int) (string, error) {
+	switch kind {
+	case CorrelationNumbers:
+		return random.GetNumericChars(length)
+	case CorrelationHex:
+		return random.GetHexChars(length)
+	case CorrelationLowerAlphaNumeric:
+		return random.GetLowerAlphaNumericChars(length)
+	case CorrelationAlphaNumeric:
+		return random.GetAlphaNumericChars(length)
+	default:
+		return random.GetHexChars(length)
+	}
 }
