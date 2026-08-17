@@ -14,6 +14,7 @@ import (
 	_ "github.com/jackc/pgx/v5"
 	"github.com/jmoiron/sqlx"
 	"github.com/ntbosscher/gobase/env"
+	"github.com/ntbosscher/gobase/er"
 )
 
 var defaultDb *sqlx.DB
@@ -34,6 +35,10 @@ func init() {
 		return
 	}
 
+	initExt()
+}
+
+func initExt() {
 	var err error
 
 	defaultDb, err = createConnection(defaultDbType, env.Require("CONNECTION_STRING"))
@@ -43,6 +48,14 @@ func init() {
 	}
 
 	otherDbs[DefaultConnectionKey] = defaultDb
+}
+
+func EnableForTestingMode() {
+	if !env.IsUnitTest {
+		er.Throw("EnableForTestingMode can only be called in a unit test")
+	}
+
+	initExt()
 }
 
 // AddConnection adds additional database connections that can be used by this package.
