@@ -1,7 +1,6 @@
 package parallelize
 
 import (
-	"errors"
 	"github.com/ntbosscher/gobase/er"
 )
 
