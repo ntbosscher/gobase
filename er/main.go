@@ -81,6 +81,12 @@ type ClientSafeErr interface {
 	IsClientSafeErr() bool
 }
 
+// IsClientSafe reports whether err (or anything it wraps) opted in to having its
+// Error() message shown to the consumer verbatim via the ClientSafeErr interface.
+func IsClientSafe(err error) bool {
+	return isClientSafeMessage(err)
+}
+
 func isClientSafeMessage(err error) bool {
 	var target ClientSafeErr
 	if errors.As(err, &target) {

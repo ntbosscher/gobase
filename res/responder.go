@@ -167,8 +167,9 @@ func WrapHTTP(server http.Handler) Responder {
 // Error returns a client-safe responder for err. Following the same disclosure
 // policy as the panic handler, the underlying error is logged server-side while
 // the client receives only a generic message — unless er.ReturnErrorMessageToClient
-// is set (typically dev mode), in which case the detail is passed through. This
-// prevents raw DB/driver/internal error text from leaking to callers.
+// is set (typically dev mode) or err opted in via er.ClientSafe/ThrowClientSafe,
+// in which case the detail is passed through. This prevents raw DB/driver/internal
+// error text from leaking to callers.
 func Error(err error) Responder {
 	if err == nil {
 		return AppError(er.GenericErrorMessage)
@@ -176,7 +177,7 @@ func Error(err error) Responder {
 
 	er.ErrorLog.Println(err.Error())
 
-	if er.ReturnErrorMessageToClient {
+	if er.ReturnErrorMessageToClient || er.IsClientSafe(err) {
 		return AppError(err.Error())
 	}
 
