@@ -14,6 +14,9 @@ func handlePanic(input *er.HandlerInput) *responder {
 
 	return &responder{
 		status: input.SuggestedHttpCode,
+		// SafeError already logged the full server-side detail under the
+		// correlation id, so skip the generic request-failed log in Respond.
+		skipErrorLog: true,
 		data: map[string]interface{}{
 			// input.Details comes from ErrorWithDetailsForClient and is
 			// client-safe by design, so it's always passed through.

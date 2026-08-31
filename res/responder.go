@@ -76,6 +76,12 @@ type Responder interface {
 type responder struct {
 	status int
 	data   interface{}
+
+	// skipErrorLog suppresses the generic "request failed" error log below for
+	// responders whose underlying error was already logged with full detail
+	// (e.g. the panic handler via er.SafeError, or res.Error via er.ErrorLog).
+	// Without it every such error is logged twice.
+	skipErrorLog bool
 }
 
 func (resp *responder) Respond(w http.ResponseWriter, r *http.Request) {
@@ -83,7 +89,7 @@ func (resp *responder) Respond(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.status)
 
-	if resp.status >= 400 {
+	if resp.status >= 400 && !resp.skipErrorLog {
 		if !ignoreErrorLog(resp.status, resp.data, r) {
 
 			debugStr := ""
@@ -177,11 +183,18 @@ func Error(err error) Responder {
 
 	er.ErrorLog.Println(err.Error())
 
+	msg := er.GenericErrorMessage
 	if er.ReturnErrorMessageToClient || er.IsClientSafe(err) {
-		return AppError(err.Error())
+		msg = err.Error()
 	}
 
-	return AppError(er.GenericErrorMessage)
+	// err was already logged above via er.ErrorLog, so skip the generic
+	// request-failed log in Respond to avoid logging it twice.
+	return &responder{
+		status:       http.StatusInternalServerError,
+		data:         errorData(msg, "", "", nil),
+		skipErrorLog: true,
+	}
 }
 
 type freeformResponder struct {
