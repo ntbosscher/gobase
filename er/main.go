@@ -229,3 +229,37 @@ func ClientSafe(message string) error {
 func ClientSafef(format string, args ...any) error {
 	return ClientSafe(fmt.Sprintf(format, args...))
 }
+
+type wrappedClientSafeErr struct {
+	message string
+	cause   error
+}
+
+func (e *wrappedClientSafeErr) Error() string {
+	return e.message
+}
+
+func (e *wrappedClientSafeErr) Unwrap() error {
+	return e.cause
+}
+
+func (e *wrappedClientSafeErr) IsClientSafeErr() bool {
+	return true
+}
+
+// WrapClientSafe wraps err with a client-safe message. Unlike ClientSafe, which
+// discards the original error, the returned error keeps err in its chain (via
+// Unwrap) so errors.Is / errors.As still match the original cause, while its
+// Error() is message — which SafeError surfaces to the consumer verbatim,
+// regardless of ReturnErrorMessageToClient. Returns nil when err is nil so it
+// can guard a call inline, e.g. er.Check(er.WrapClientSafe(doThing(), "...")).
+func WrapClientSafe(err error, message string) error {
+	if err == nil {
+		return nil
+	}
+
+	return &wrappedClientSafeErr{
+		message: message,
+		cause:   err,
+	}
+}
