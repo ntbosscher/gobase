@@ -23,6 +23,7 @@ var provider string
 var postmarkAPIKey string
 var postmarkStream string
 var defaultFrom string
+var defaultReplyTo string
 
 const mailgunProvider = "mailgun"
 const postmarkProvider = "postmark"
@@ -30,6 +31,7 @@ const postmarkProvider = "postmark"
 func init() {
 	provider = env.Optional("EMAIL_PROVIDER", mailgunProvider)
 	defaultFrom = env.Require("DEFAULT_EMAIL_FROM")
+	defaultReplyTo = env.Optional("DEFAULT_EMAIL_REPLY_TO", "")
 
 	switch provider {
 	case mailgunProvider:
@@ -208,7 +210,9 @@ type Email struct {
 	// if left blank, DEFAULT_EMAIL_FROM will be used
 	From string
 
-	// ReplyTo defines the reply-to header, excluded if left blank
+	// ReplyTo defines the reply-to header
+	// if left blank, DEFAULT_EMAIL_REPLY_TO will be used
+	// excluded if both are blank
 	ReplyTo string
 
 	// Subject is the email's subject field
@@ -237,6 +241,10 @@ func (e *Email) Send2(ctx context.Context) error {
 
 	if e.From == "" {
 		e.From = defaultFrom
+	}
+
+	if e.ReplyTo == "" {
+		e.ReplyTo = defaultReplyTo
 	}
 
 	switch provider {
