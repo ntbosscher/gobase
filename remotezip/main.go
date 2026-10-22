@@ -4,11 +4,11 @@ import (
 	"archive/zip"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 
@@ -23,6 +23,10 @@ var MaxFileSize int64 = 2 * GB
 // Set to 0 to disable the total cap.
 var MaxTotalSize int64 = 10 * GB
 
+const workerCount = 5
+
+var errEntryTooLarge = errors.New("remotezip: entry exceeds configured size cap (MaxFileSize/MaxTotalSize)")
+
 type Zip struct {
 	wr      *zip.Writer
 	tempDir string
@@ -36,6 +40,7 @@ type Zip struct {
 	err error
 }
 
+// NewZip creates an empty zip. Call Close when done, even when Run is never called.
 func NewZip() *Zip {
 	return &Zip{
 		mu: &sync.Mutex{},
@@ -45,23 +50,36 @@ func NewZip() *Zip {
 const GB = 1024 * 1024 * 1024
 const MB = 1024 * 1024
 
-// checkDiskSpace returns an error (rather than mutating z.err) so it's safe to call
-// from the Run loop without holding z.mu; the caller decides whether/how to record it.
-func (z *Zip) checkDiskSpace() error {
-	if runtime.GOOS == "linux" {
-		var stat unix.Statfs_t
-		wd, err := os.Getwd()
-		if err != nil {
-			return err
-		}
+// File is the finished zip. Close also removes it from disk.
+type File struct {
+	*os.File
+}
 
-		if err := unix.Statfs(wd, &stat); err != nil {
-			return err
-		}
+func (f *File) Close() error {
+	err := f.File.Close()
+	rmErr := os.Remove(f.Name())
 
-		if stat.Bavail*uint64(stat.Bsize) < 1*GB {
-			return errors.New("Not enough free space on server (need at least 1GB)")
-		}
+	if err != nil {
+		return err
+	}
+
+	return rmErr
+}
+
+// checkDiskSpace makes sure every worker can hold a max-size download in the temp dir at once.
+func checkDiskSpace() error {
+	var stat unix.Statfs_t
+	if err := unix.Statfs(os.TempDir(), &stat); err != nil {
+		return err
+	}
+
+	need := uint64(1 * GB)
+	if MaxFileSize > 0 {
+		need = uint64(MaxFileSize * workerCount)
+	}
+
+	if uint64(stat.Bavail)*uint64(stat.Bsize) < need {
+		return fmt.Errorf("Not enough free space on server (need at least %dMB)", need/MB)
 	}
 
 	return nil
@@ -91,7 +109,16 @@ func (z *Zip) initInternalsUnsafe() error {
 	return z.err
 }
 
+// Close removes the temp files. It does not touch the File returned by Run.
 func (z *Zip) Close() error {
+	z.mu.Lock()
+	defer z.mu.Unlock()
+
+	return z.cleanupUnsafe()
+}
+
+// cleanupUnsafe removes the temp files. Callers must hold z.mu.
+func (z *Zip) cleanupUnsafe() error {
 	var err error
 
 	if z.wr != nil {
@@ -124,58 +151,56 @@ func (z *Zip) setupForRun() ([]downloadItem, error) {
 		return nil, err
 	}
 
-	if z.err = z.checkDiskSpace(); z.err != nil {
-		return nil, z.err
-	}
-
 	return z.remoteQueue, nil
 }
 
-// Run creates the zip file and returns a file handle to the zip file
-// the file handle must be closed by the caller
-func (z *Zip) Run(ctx context.Context) (*os.File, error) {
+// Run creates the zip file and returns it. The caller must Close the returned
+// File, which also removes it from disk. On error, Run removes all temp files.
+func (z *Zip) Run(ctx context.Context) (out *File, err error) {
+	defer func() {
+		if err != nil {
+			z.Close()
+		}
+	}()
 
 	queueItems, err := z.setupForRun()
 	if err != nil {
 		return nil, err
 	}
 
-	queue := make(chan downloadItem, 10)
-	errC := make(chan error, 1)
+	queue := make(chan downloadItem)
+	// one slot per worker so a failing worker never blocks
+	errC := make(chan error, workerCount)
 	wg := &sync.WaitGroup{}
 
-	for i := 0; i < 5; i++ {
+	for i := 0; i < workerCount; i++ {
 		wg.Add(1)
 
 		go func() {
-			err2 := z.worker(ctx, wg, queue)
+			defer wg.Done()
 
-			select {
-			case errC <- err2:
-			default:
+			if err := z.worker(ctx, queue); err != nil {
+				errC <- err
 			}
 		}()
 	}
 
 	var loopErr error
 
-	for i, item := range queueItems {
-		select {
-		case queue <- item:
-		case err = <-errC:
-			loopErr = err
-		}
-
-		if loopErr != nil {
+send:
+	for _, item := range queueItems {
+		// check disk space to prevent running out for big files
+		if loopErr = checkDiskSpace(); loopErr != nil {
 			break
 		}
 
-		// check disk space to prevent running out for big files
-		if i != 0 && i%10 == 0 {
-			loopErr = z.checkDiskSpace()
-			if loopErr != nil {
-				break
-			}
+		select {
+		case queue <- item:
+		case loopErr = <-errC:
+			break send
+		case <-ctx.Done():
+			loopErr = ctx.Err()
+			break send
 		}
 	}
 
@@ -192,8 +217,7 @@ func (z *Zip) Run(ctx context.Context) (*os.File, error) {
 			z.err = loopErr
 		} else {
 			select {
-			case err = <-errC:
-				z.err = err
+			case z.err = <-errC:
 			default:
 			}
 		}
@@ -206,54 +230,57 @@ func (z *Zip) Run(ctx context.Context) (*os.File, error) {
 	wr := z.wr
 	z.wr = nil
 
-	if err = wr.Close(); err != nil {
-		z.err = err
+	if z.err = wr.Close(); z.err != nil {
 		return nil, z.err
 	}
 
 	tempZip := z.tempZip
 	z.tempZip = nil
 
-	if err = tempZip.Close(); err != nil {
+	if z.err = tempZip.Close(); z.err != nil {
+		return nil, z.err
+	}
+
+	// move the zip out of tempDir so cleanupUnsafe can remove tempDir
+	final, err := os.CreateTemp(os.TempDir(), "zipit-final-*.zip")
+	if err != nil {
 		z.err = err
 		return nil, z.err
 	}
 
-	var outputFile *os.File
-	var outputHandle *os.File
+	finalName := final.Name()
+	z.err = final.Close()
 
-	outputFile, z.err = os.CreateTemp(os.TempDir(), "zipit-final-*.zip")
+	if z.err == nil {
+		z.err = os.Rename(tempZip.Name(), finalName)
+	}
+
+	var handle *os.File
+	if z.err == nil {
+		handle, z.err = os.Open(finalName)
+	}
+
 	if z.err != nil {
+		os.Remove(finalName)
 		return nil, z.err
 	}
 
-	z.err = outputFile.Close()
-	if z.err != nil {
-		return nil, z.err
-	}
-
-	z.err = os.Rename(tempZip.Name(), outputFile.Name())
-	if z.err != nil {
-		return nil, z.err
-	}
-
-	outputHandle, z.err = os.Open(outputFile.Name())
-	if z.err != nil {
-		os.Remove(outputFile.Name())
-		return nil, z.err
-	}
-
-	err = z.Close()
-	if err != nil {
-		os.Remove(outputFile.Name())
+	if err = z.cleanupUnsafe(); err != nil {
+		handle.Close()
+		os.Remove(finalName)
 		return nil, err
 	}
 
-	return outputHandle, nil
+	return &File{File: handle}, nil
 }
 
-func (z *Zip) worker(ctx context.Context, wg *sync.WaitGroup, queue chan downloadItem) error {
-	defer wg.Done()
+func (z *Zip) worker(ctx context.Context, queue chan downloadItem) (err error) {
+	// a panic in a DownloadFunc would otherwise crash the process
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("remotezip: download panicked: %v", r)
+		}
+	}()
 
 	tempFile, err := os.CreateTemp(z.tempDir, "download-*")
 	if err != nil {
@@ -265,22 +292,11 @@ func (z *Zip) worker(ctx context.Context, wg *sync.WaitGroup, queue chan downloa
 		os.Remove(tempFile.Name())
 	}()
 
-	resetTempFile := func() error {
-		tempFile.Close()
-		os.Remove(tempFile.Name())
-
-		tempFile, err = os.CreateTemp(z.tempDir, "download-*")
-		if err != nil {
-			return err
-		}
-
-		return nil
-	}
-
-	var item downloadItem
-	var ok bool
+	const maxAttempts = 2
 
 	for {
+		var item downloadItem
+		var ok bool
 
 		select {
 		case item, ok = <-queue:
@@ -288,59 +304,48 @@ func (z *Zip) worker(ctx context.Context, wg *sync.WaitGroup, queue chan downloa
 				return nil
 			}
 		case <-ctx.Done():
-			return nil
+			return ctx.Err()
 		}
 
-		maxAttemptCt := 2
-
-		for retryDownloadIndex := 0; retryDownloadIndex < maxAttemptCt; retryDownloadIndex++ {
-			// reset tempFile the easy way
-			ferr := tempFile.Truncate(0)
-			if ferr == nil {
-				_, ferr = tempFile.Seek(0, io.SeekStart)
-			}
-
-			if ferr != nil {
-				// reset tempFile the expensive way
-				if err = resetTempFile(); err != nil {
-					return err
-				}
-			}
-
-			// download the file into tempFile
-			if err = item.Download(ctx, tempFile); err != nil {
-				if retryDownloadIndex < maxAttemptCt {
-					continue
-				}
-
+		for attempt := 1; ; attempt++ {
+			if err = tempFile.Truncate(0); err != nil {
 				return err
 			}
 
-			// reset reader position for fileWriter
-			if _, ferr = tempFile.Seek(0, io.SeekStart); ferr != nil {
-				if retryDownloadIndex >= maxAttemptCt {
-					return ferr
-				}
-
-				if err = resetTempFile(); err != nil {
-					return err
-				}
-
-				continue
+			err = item.Download(ctx, &limitedWriterAt{w: tempFile, max: MaxFileSize})
+			if err == nil {
+				break
 			}
 
-			err = z.addFileFromWriterSync(item.Name, tempFile)
-			if err != nil {
-				if retryDownloadIndex >= maxAttemptCt {
-					return err
-				}
-
-				continue
+			if attempt >= maxAttempts || ctx.Err() != nil || errors.Is(err, errEntryTooLarge) {
+				return err
 			}
+		}
 
-			break
+		// reset reader position for fileWriter
+		if _, err = tempFile.Seek(0, io.SeekStart); err != nil {
+			return err
+		}
+
+		if err = z.addFileFromWriterSync(item.Name, tempFile); err != nil {
+			return err
 		}
 	}
+}
+
+// limitedWriterAt stops a download at max bytes so an oversized remote file
+// can't fill the disk before the zip size caps are checked. max <= 0 means no limit.
+type limitedWriterAt struct {
+	w   io.WriterAt
+	max int64
+}
+
+func (l *limitedWriterAt) WriteAt(p []byte, off int64) (int, error) {
+	if l.max > 0 && off+int64(len(p)) > l.max {
+		return 0, errEntryTooLarge
+	}
+
+	return l.w.WriteAt(p, off)
 }
 
 type downloadItem struct {
@@ -445,7 +450,7 @@ func (z *Zip) copyWithLimitUnsafe(w io.Writer, data io.Reader) error {
 	}
 
 	if written > remaining {
-		return errors.New("remotezip: entry exceeds configured size cap (MaxFileSize/MaxTotalSize)")
+		return errEntryTooLarge
 	}
 
 	return nil

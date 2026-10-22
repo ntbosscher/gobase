@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -71,11 +72,61 @@ func TestNewZipIt(t *testing.T) {
 		fmt.Println(item.Name, item.UncompressedSize64)
 	}
 
-	out.Close()
-
-	err = os.Remove(out.Name())
-
+	err = out.Close()
 	if err != nil {
-		t.Fatalf("Error removing file: %v", err)
+		t.Fatalf("Error closing file: %v", err)
+	}
+
+	if _, err = os.Stat(out.Name()); !os.IsNotExist(err) {
+		t.Fatalf("Expected zip to be removed on close, got: %v", err)
+	}
+}
+
+func TestRunCleansUpOnError(t *testing.T) {
+	zipper := NewZip()
+
+	err := zipper.AddMemoryFile("test.txt", bytes.NewReader([]byte("test")))
+	if err != nil {
+		t.Fatalf("Error adding file: %v", err)
+	}
+
+	err = zipper.AddRemoteFile("fail.txt", func(ctx context.Context, writer io.WriterAt) error {
+		panic("boom")
+	})
+	if err != nil {
+		t.Fatalf("Error adding file: %v", err)
+	}
+
+	tempDir := zipper.tempDir
+
+	_, err = zipper.Run(context.Background())
+	if err == nil {
+		t.Fatalf("Expected error from panicking download")
+	}
+
+	if _, err = os.Stat(tempDir); !os.IsNotExist(err) {
+		t.Fatalf("Expected tempDir to be removed, got: %v", err)
+	}
+}
+
+func TestRunCancelledContext(t *testing.T) {
+	zipper := NewZip()
+
+	for i := 0; i < 50; i++ {
+		err := zipper.AddRemoteFile(fmt.Sprint(i, ".txt"), func(ctx context.Context, writer io.WriterAt) error {
+			<-ctx.Done()
+			return ctx.Err()
+		})
+		if err != nil {
+			t.Fatalf("Error adding file: %v", err)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := zipper.Run(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Expected context.Canceled, got: %v", err)
 	}
 }
