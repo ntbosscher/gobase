@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -34,8 +35,9 @@ func init() {
 	var err error
 
 	DebugPrintJobStats = env.OptionalBool("PQWORKQUEUE_PRINT_JOB_STATS", false)
+	// With PQWORKQUEUE_SKIP_MIGRATE, the app must create the tables below itself, including pq_worker_active.
 	skipAll := env.OptionalBool("PQWORKQUEUE_SKIP_MIGRATE", false)
-	skipThis := env.Optional("PQWORKQUEUE_MIGRATION_LEVEL", "") == "2026-July-24"
+	skipThis := env.Optional("PQWORKQUEUE_MIGRATION_LEVEL", "") == "2026-Oct-23"
 
 	needsMigration := !skipAll
 	if skipThis {
@@ -102,6 +104,18 @@ func init() {
 		if err != nil {
 			log.Fatal("failed to setup worker table: ", err)
 		}
+
+		// Active jobs of all processes, so the deadlock detector can see links between them. See deadlock.go.
+		_, err = pqshared.Pool.Exec(context.Background(), `create table if not exists pq_worker_active (
+			job_id text not null primary key,
+			outer_pid int not null,
+			outer_xact_start timestamp not null,
+			inner_pid int not null,
+			inner_xact_start timestamp not null
+		);`)
+		if err != nil {
+			log.Fatal("failed to setup worker active table: ", err)
+		}
 	}
 
 	go cleaner()
@@ -145,10 +159,9 @@ func watcher() {
 	go w.addNewListeners()
 	go w.monitorScheduled()
 	go w.monitorDbNotifications()
+	go detector.run()
 
-	wait := sync.WaitGroup{}
-	wait.Add(3)
-	wait.Wait()
+	select {}
 }
 
 func (w *watcherInfo) processWork(queueName string) {
@@ -313,12 +326,16 @@ func (w *watcherInfo) startWork(queueName string, isolationLevel sql.IsolationLe
 	// Accepted risk / connection budgeting: this outer transaction (claim -> run callback -> store
 	// result) stays open for the ENTIRE job, holding one pool connection the whole time, and the
 	// callback below runs in a SECOND transaction (WithTx2) on its own connection. So each in-flight
-	// job pins ~2 connections from pqshared.Pool. Size the pool accordingly:
-	// pool MaxConns >= 2 * (sum of NConcurrent across all queues) + headroom for the rest of the app,
+	// job pins ~2 connections from the model connection pool. Size the pool accordingly:
+	// pool MaxOpenConns >= 2 * (sum of NConcurrent across all queues) + headroom for the rest of the app,
 	// otherwise long-running jobs can starve the pool and stall the whole application.
+	// See deadlock.go for how a deadlock through these 2 transactions is broken.
+	jobLimit.acquire()
+	defer jobLimit.release()
+
 	err := model.WithTx(context.Background(), func(ctx context.Context, tx *sqlx.Tx) error {
 
-		meta, message, err := getAndClaimJob(ctx, queueName)
+		meta, message, outerPid, err := getAndClaimJob(ctx, queueName)
 		if err != nil {
 			if !errors.Is(err, sql.ErrNoRows) {
 				Logger.Println("failed to get job:", err.Error())
@@ -335,10 +352,30 @@ func (w *watcherInfo) startWork(queueName string, isolationLevel sql.IsolationLe
 		var result []byte
 		tStart := time.Now()
 
-		err2 := model.WithTx2(context.Background(), isolationLevel, func(ctx context.Context, tx *sqlx.Tx) (innerErr error) {
+		// cancellable, so the deadlock detector can stop this job's callback
+		innerCtx, cancelInner := context.WithCancelCause(context.Background())
+		defer cancelInner(nil)
+		detector.add(meta.ID, cancelInner)
+		defer detector.remove(meta.ID)
+
+		published := false
+
+		err2 := model.WithTx2(innerCtx, isolationLevel, func(ctx context.Context, tx *sqlx.Tx) (innerErr error) {
 			defer er.HandleErrors(func(input *er.HandlerInput) {
 				innerErr = input.Error
 			})
+
+			var innerPid int32
+			er.Check(model.GetContext(ctx, &innerPid, `select pg_backend_pid()`))
+
+			if !detector.setRunning(meta.ID) {
+				return context.Cause(ctx)
+			}
+
+			published = detector.publish(meta.ID, outerPid, innerPid)
+
+			// stop tracking before commit, since the connection then goes back to the pool
+			defer detector.remove(meta.ID)
 
 			if DebugPrintJobStats {
 				Debug.Println("starting job for", "queue:"+queueName, "arg:"+getDebugStringForMessage(message))
@@ -352,6 +389,21 @@ func (w *watcherInfo) startWork(queueName string, isolationLevel sql.IsolationLe
 			result = exec(ctx, message, meta)
 			return
 		})
+
+		if published {
+			detector.unpublish(meta.ID)
+		}
+
+		cause := context.Cause(innerCtx)
+		if err2 != nil && cause != nil {
+			err2 = fmt.Errorf("%w: %w", cause, err2)
+		}
+
+		// the callback did not run, so release the claim and retry the job after a delay
+		if errors.Is(cause, ErrDeadlockPoolExhausted) {
+			Logger.Println("deadlock detected, retrying job", meta.ID)
+			return model.ExecContext(ctx, `update pq_worker_queue set started_at = null, start_after = $1 where id = $2`, time.Now().UTC().Add(DeadlockRetryDelay), meta.ID)
+		}
 
 		if DebugPrintJobStats {
 			Debug.Println("finished job for", "queue:"+queueName, "arg:"+getDebugStringForMessage(message), "duration:"+time.Since(tStart).String())
@@ -415,17 +467,18 @@ func checkValidCharacters(value []byte) string {
 	return string(out)
 }
 
-func getAndClaimJob(ctx context.Context, queueName string) (meta WorkerJobMeta, message json.RawMessage, err error) {
+func getAndClaimJob(ctx context.Context, queueName string) (meta WorkerJobMeta, message json.RawMessage, pid int32, err error) {
 
 	result := struct {
 		ID      string          `db:"id"`
 		JobArg  json.RawMessage `db:"job_arg"`
 		Usr     nulls.Int       `db:"usr"`
 		Company nulls.Int       `db:"company"`
+		Pid     int32           `db:"pid"`
 	}{}
 
 	err = model.GetContext(ctx, &result, `
-		select id, job_arg, usr, company
+		select id, job_arg, usr, company, pg_backend_pid() as pid
 		from pq_worker_queue
 		where queue_name = $1 and start_after <= $2 and started_at is null
 		order by start_after
@@ -446,7 +499,7 @@ func getAndClaimJob(ctx context.Context, queueName string) (meta WorkerJobMeta, 
 		ID:      result.ID,
 		User:    result.Usr,
 		Company: result.Company,
-	}, result.JobArg, nil
+	}, result.JobArg, result.Pid, nil
 }
 
 func (w *watcherInfo) addNewListeners() {
@@ -634,6 +687,24 @@ func cleaner() {
 		if err != nil {
 			Logger.Println("failed to cleanup old records", err)
 		}
+
+		// Rows of jobs whose claim transaction no longer exists (e.g. the process crashed).
+		// A null xact_start can be a live session of another role, so it doesn't count as gone.
+		err = model.WithTx(context.Background(), func(ctx context.Context, tx *sqlx.Tx) error {
+			return model.ExecContext(ctx, `
+				delete from pq_worker_active
+				where job_id in (
+					select w.job_id
+					from pq_worker_active w
+					left join pg_stat_activity a on a.pid = w.outer_pid
+					where a.pid is null
+						or (a.xact_start is not null and a.xact_start at time zone 'utc' <> w.outer_xact_start)
+				)`)
+		})
+
+		if err != nil {
+			Logger.Println("failed to cleanup active jobs", err)
+		}
 	}
 }
 
@@ -651,6 +722,9 @@ type WorkerJobMeta struct {
 
 // Worker processes the job and can return a byte slice to be stored as a result
 // Note: ctx is executed within a model.Tx
+//
+// Do all database work through ctx. Do not open a nested transaction (model.WithTx etc.) and do not
+// use model with a context that has no tx. See deadlock.go for why.
 type Worker = func(ctx context.Context, input json.RawMessage, meta WorkerJobMeta) []byte
 type Middleware = func(next Worker) Worker
 

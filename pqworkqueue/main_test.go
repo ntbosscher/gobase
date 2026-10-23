@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/gobuffalo/nulls"
 	"github.com/jmoiron/sqlx"
 	"github.com/ntbosscher/gobase/er"
 	"github.com/ntbosscher/gobase/jv"
@@ -181,4 +183,48 @@ func TestMerge(t *testing.T) {
 		}
 	}
 
+}
+
+func TestDeadlockLockWait(t *testing.T) {
+	model.SetStructNameMapping(model.SnakeCaseStructNameMapping)
+
+	StartWorkers(&WorkerInfo{
+		QueueName: "test-deadlock-lock-wait",
+		Callback: func(ctx context.Context, input json.RawMessage, meta WorkerJobMeta) []byte {
+			// the claim transaction holds the lock on this row
+			er.Check(model.ExecContext(ctx, `update pq_worker_queue set debounce_key = 'x' where id = $1`, meta.ID))
+			return []byte("result")
+		},
+	})
+
+	q := NewQueue("test-deadlock-lock-wait")
+
+	id := ""
+	er.Check(model.WithTx(context.Background(), func(ctx context.Context, tx *sqlx.Tx) error {
+		id = q.MustAdd(ctx, "arg")
+		return nil
+	}))
+
+	deadline := time.Now().Add(3 * DeadlockCheckInterval)
+	tc := time.NewTicker(100 * time.Millisecond)
+	defer tc.Stop()
+
+	for range tc.C {
+		commitErr := nulls.String{}
+		er.Check(model.WithTx(context.Background(), func(ctx context.Context, tx *sqlx.Tx) error {
+			return model.GetContext(ctx, &commitErr, `select commit_error from pq_worker_queue where id = $1`, id)
+		}))
+
+		if commitErr.Valid {
+			if !strings.Contains(commitErr.String, ErrDeadlockLockWait.Error()) {
+				t.Fatal("unexpected commit error", commitErr.String)
+			}
+
+			break
+		}
+
+		if deadline.Before(time.Now()) {
+			t.Fatal("missed deadline")
+		}
+	}
 }

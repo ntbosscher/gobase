@@ -7,8 +7,9 @@ to fix when you bump the version. Every entry is tagged:
 - **`[behavior]`** — same signature, different runtime behavior. Compiles fine, acts differently.
   These are the dangerous ones — read them.
 
-It covers two upgrade windows, newest first:
+It covers these upgrade windows, newest first:
 
+- [**`v0.12.2` → `v0.13.0`**](#v0122--v0130) — pqworkqueue deadlock detection and a global job limit.
 - [**`v0.8.0` → `v0.9.0`**](#v080--v090) — per-client rate limiting, request/websocket DoS caps,
   pqworkqueue multi-tenancy (has `[compile]` breaks), and further error-disclosure tightening.
 - [**`2cb8487` (pre-`v0.8.0`) → `v0.8.0`**](#v080-and-earlier-2cb8487--v080) — the original
@@ -20,6 +21,66 @@ Regenerate the raw diff for any package with:
 git diff v0.8.0..HEAD -- <path>          # the v0.9.0 window
 git diff 2cb8487..v0.8.0 -- <path>       # the earlier window
 ```
+
+---
+
+# `v0.12.2` → `v0.13.0`
+
+## TL;DR — do these before you ship
+
+**Compiles, but will bite silently — verify each:**
+
+1. **`pqworkqueue` limits in-flight jobs for all queues together** to `(MaxOpenConns-2)/2` (4 with
+   the default pool of 10). A sum of `NConcurrent` above that limit has no effect. See
+   [pqworkqueue](#pqworkqueue-v0130).
+2. **`pqworkqueue` needs a new table, `pq_worker_active`.** It is created on init. If you set
+   `PQWORKQUEUE_SKIP_MIGRATE=true`, create it yourself. See [pqworkqueue](#pqworkqueue-v0130).
+
+<a id="pqworkqueue-v0130"></a>
+## pqworkqueue
+
+- **[behavior]** — A deadlock detector now runs in the background. It finds deadlocks that pass
+  through a job's claim transaction, which Postgres can't detect, and cancels one job:
+  - The callback waits on a lock held by a claim transaction (its own job's, or another job's in
+    any process): the job is marked complete with `commit_error` set to `ErrDeadlockLockWait`. It is
+    not retried.
+  - The connection pool stays full and no waiting job gets its callback connection for
+    `PoolStallTimeout` (1 min): the oldest waiting job is released and runs again after
+    `DeadlockRetryDelay` (10s).
+  - The check runs every `DeadlockCheckInterval` (5s).
+  - Fix: no change for normal traffic. Read `commit_error` if you check job failures.
+
+- **[behavior]** — In-flight jobs are limited to `(MaxOpenConns-2)/2` (at least 1) for all queues
+  together, since each job holds up to 2 connections. With the default pool (10), 4 jobs run at the
+  same time, and 2 connections stay free for the rest of the app.
+  - Fix: if one queue must not wait for another, lower the `NConcurrent` of the busy queue.
+
+- **[behavior]** — Worker callbacks must do all database work through the `ctx` they get. Do not
+  open a nested transaction (`model.WithTx` etc.) and do not use `model` with a context that has no
+  tx. The detector can't break a deadlock through that work, and the job then blocks forever.
+
+- **[behavior]** — New table `pq_worker_active`, created on init. The migration level for
+  `PQWORKQUEUE_MIGRATION_LEVEL` is now `2026-Oct-23`. The old value `2026-July-24` now runs the
+  idempotent migrations again.
+  - Fix: if you set `PQWORKQUEUE_SKIP_MIGRATE=true`, create the table:
+    ```sql
+    create table if not exists pq_worker_active (
+        job_id text not null primary key,
+        outer_pid int not null,
+        outer_xact_start timestamp not null,
+        inner_pid int not null,
+        inner_xact_start timestamp not null
+    );
+    ```
+
+- **[behavior]** — Detection across processes reads `xact_start` from `pg_stat_activity`. All
+  processes must connect as the same role, or the role must have `pg_read_all_stats`. Otherwise
+  deadlocks between the processes are not detected.
+
+- **[behavior]** — Each job now runs 3 more short queries: one for its backend pid, and an insert
+  and a delete on `pq_worker_active`.
+
+- New: `model.Stats(ctx)` returns the connection pool statistics of the selected database.
 
 ---
 

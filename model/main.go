@@ -3,6 +3,7 @@ package model
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"io/ioutil"
 	"log"
@@ -118,6 +119,11 @@ func getDb(ctx context.Context) *sqlx.DB {
 	}
 
 	return db
+}
+
+// Stats returns the connection pool statistics of the database selected by ctx.
+func Stats(ctx context.Context) sql.DBStats {
+	return getDb(ctx).Stats()
 }
 
 type dbInstanceContextKey string
