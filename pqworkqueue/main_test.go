@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,6 +17,11 @@ import (
 	"github.com/ntbosscher/gobase/jv"
 	"github.com/ntbosscher/gobase/model"
 )
+
+func TestMain(m *testing.M) {
+	model.EnableForTestingMode()
+	os.Exit(m.Run())
+}
 
 func TestBasic(t *testing.T) {
 	model.SetStructNameMapping(model.SnakeCaseStructNameMapping)
@@ -226,5 +233,117 @@ func TestDeadlockLockWait(t *testing.T) {
 		if deadline.Before(time.Now()) {
 			t.Fatal("missed deadline")
 		}
+	}
+}
+
+// execOnAllPoolConnections runs query one time on each connection of the model pool. It holds all
+// connections at the same time, so that no connection gets the query twice and none is missed.
+func execOnAllPoolConnections(t *testing.T, query string) {
+	ctx := context.Background()
+	n := model.Stats(ctx).MaxOpenConnections
+	if n <= 0 {
+		t.Fatal("the model pool has no connection limit, so not all connections can be held")
+	}
+
+	acquired := sync.WaitGroup{}
+	release := make(chan struct{})
+	errs := make(chan error, n)
+
+	for i := 0; i < n; i++ {
+		acquired.Add(1)
+
+		go func() {
+			inTx := false
+
+			err := model.WithTx(ctx, func(ctx context.Context, tx *sqlx.Tx) error {
+				inTx = true
+				acquired.Done()
+				<-release
+				return model.ExecContext(ctx, query)
+			})
+
+			if !inTx {
+				acquired.Done()
+			}
+
+			errs <- err
+		}()
+	}
+
+	acquired.Wait()
+	close(release)
+
+	for i := 0; i < n; i++ {
+		er.Check(<-errs)
+	}
+}
+
+func TestClaimSurvivesIdleInTransactionTimeout(t *testing.T) {
+	model.SetStructNameMapping(model.SnakeCaseStructNameMapping)
+
+	execOnAllPoolConnections(t, `set idle_in_transaction_session_timeout = '1s'`)
+	t.Cleanup(func() {
+		execOnAllPoolConnections(t, `reset idle_in_transaction_session_timeout`)
+	})
+
+	runCount := atomic.Int32{}
+
+	StartWorkers(&WorkerInfo{
+		QueueName: "test-idle-in-tx-timeout",
+		Callback: func(ctx context.Context, input json.RawMessage, _ WorkerJobMeta) []byte {
+			runCount.Add(1)
+
+			// Take 3s in total, but query often enough that the timeout does not close this transaction.
+			for i := 0; i < 6; i++ {
+				<-time.After(500 * time.Millisecond)
+				er.Check(model.ExecContext(ctx, `select 1`))
+			}
+
+			return []byte("result")
+		},
+	})
+
+	q := NewQueue("test-idle-in-tx-timeout")
+
+	id := ""
+	er.Check(model.WithTx(context.Background(), func(ctx context.Context, tx *sqlx.Tx) error {
+		id = q.MustAdd(ctx, "arg")
+		return nil
+	}))
+
+	deadline := time.Now().Add(10 * time.Second)
+	tc := time.NewTicker(100 * time.Millisecond)
+	defer tc.Stop()
+
+	for range tc.C {
+		row := struct {
+			CompletedAt nulls.Time   `db:"completed_at"`
+			CommitError nulls.String `db:"commit_error"`
+		}{}
+
+		er.Check(model.WithTx(context.Background(), func(ctx context.Context, tx *sqlx.Tx) error {
+			return model.GetContext(ctx, &row, `select completed_at, commit_error from pq_worker_queue where id = $1`, id)
+		}))
+
+		if row.CompletedAt.Valid {
+			if row.CommitError.Valid {
+				t.Fatal("unexpected commit error", row.CommitError.String)
+			}
+
+			break
+		}
+
+		if runCount.Load() > 1 {
+			t.Fatal("job ran again before it completed, run count", runCount.Load())
+		}
+
+		if deadline.Before(time.Now()) {
+			t.Fatal("missed deadline, completed_at is not set")
+		}
+	}
+
+	value := runCount.Load()
+	if value != 1 {
+		t.Fatal("unexpected run count", value)
 	}
 }

@@ -495,6 +495,13 @@ func getAndClaimJob(ctx context.Context, queueName string) (meta WorkerJobMeta, 
 		return
 	}
 
+	// This transaction stays idle until the job is done. Keep the server from closing it, because
+	// that releases the claim before the job is done.
+	err = model.ExecContext(ctx, `set local idle_in_transaction_session_timeout = 0`)
+	if err != nil {
+		return
+	}
+
 	return WorkerJobMeta{
 		ID:      result.ID,
 		User:    result.Usr,
