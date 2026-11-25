@@ -241,8 +241,22 @@ type AnalyzeDocumentField struct {
 	ValueNumber      float64
 	ValuePhoneNumber string
 	ValueCurrency    *ValueCurrency
-	Content          string
-	Confidence       float64
+	// ValueDate is an ISO date (2006-01-02) for fields of type "date".
+	ValueDate    string
+	ValueAddress *ValueAddress
+	Content      string
+	Confidence   float64
+}
+
+type ValueAddress struct {
+	HouseNumber   string
+	Road          string
+	Unit          string
+	City          string
+	State         string
+	PostalCode    string
+	CountryRegion string
+	StreetAddress string
 }
 
 type ValueCurrency struct {
