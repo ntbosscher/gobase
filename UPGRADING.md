@@ -9,6 +9,7 @@ to fix when you bump the version. Every entry is tagged:
 
 It covers these upgrade windows, newest first:
 
+- [**`v0.14.1` → `v0.15.0`**](#v0141--v0150) — new optional package `pqworkqueue/pqprogress`.
 - [**`v0.12.2` → `v0.13.0`**](#v0122--v0130) — pqworkqueue deadlock detection and a global job limit.
 - [**`v0.8.0` → `v0.9.0`**](#v080--v090) — per-client rate limiting, request/websocket DoS caps,
   pqworkqueue multi-tenancy (has `[compile]` breaks), and further error-disclosure tightening.
@@ -21,6 +22,31 @@ Regenerate the raw diff for any package with:
 git diff v0.8.0..HEAD -- <path>          # the v0.9.0 window
 git diff 2cb8487..v0.8.0 -- <path>       # the earlier window
 ```
+
+---
+
+# `v0.14.1` → `v0.15.0`
+
+No call site has to change. The new package is optional.
+
+<a id="pqprogress-v0150"></a>
+## pqworkqueue/pqprogress
+
+- New: package `pqworkqueue/pqprogress`. A job reports its progress (a description and a percent),
+  and the page that polls the job reads it with `pqprogress.Get`. A queue uses it only when it
+  registers `pqprogress.Middleware()` with `RegisterWorker`.
+
+- **[behavior]** — New table `pq_worker_progress`, created on init when a package imports
+  `pqprogress`. Init also deletes rows older than `StaleAfter` (24 h).
+  - Fix: if you set `PQWORKQUEUE_SKIP_MIGRATE=true`, create the table:
+    ```sql
+    create table if not exists pq_worker_progress (
+        id text not null primary key,
+        description text not null,
+        percent real not null,
+        updated_at timestamp not null
+    );
+    ```
 
 ---
 
